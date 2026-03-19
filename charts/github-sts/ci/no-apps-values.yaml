@@ -1,0 +1,3 @@
+# CI test values: no apps configured (lint-only, should show WARNING in NOTES)
+github:
+  apps: {}

@@ -1,0 +1,6 @@
+# CI test values: single GitHub App deployment
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"

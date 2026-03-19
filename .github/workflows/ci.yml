@@ -1,0 +1,84 @@
+---
+name: CI Helm
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - charts/**
+      - .github/workflows/ci.yml
+  push:
+    branches: [main]
+    paths:
+      - charts/**
+      - .github/workflows/ci.yml
+  workflow_call: {}
+
+concurrency:
+  group: ci-helm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  helm-lint:
+    name: Helm Lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Lint chart
+        run: helm lint charts/github-sts --strict
+
+      - name: Lint chart with CI values
+        run: |
+          for f in charts/github-sts/ci/*.yaml; do
+            echo "=== Linting with ${f} ==="
+            helm lint charts/github-sts --strict -f "${f}"
+          done
+
+      - name: Render templates
+        run: helm template test charts/github-sts > rendered.yaml
+
+      - name: Render templates with CI values
+        run: |
+          for f in charts/github-sts/ci/*.yaml; do
+            echo "=== Rendering with ${f} ==="
+            helm template test charts/github-sts -f "${f}" > /dev/null
+          done
+
+      - name: Upload rendered manifests
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: rendered-manifests
+          path: rendered.yaml
+          retention-days: 7
+
+  helm-unittest:
+    name: Helm Unit Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Install helm-unittest plugin
+        run: helm plugin install --verify=false https://github.com/helm-unittest/helm-unittest.git
+
+      - name: Run unit tests
+        run: helm unittest charts/github-sts
