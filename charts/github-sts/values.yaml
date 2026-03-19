@@ -15,11 +15,11 @@ replicaCount: 1
 # -- Image configuration
 image:
   # -- Image registry
-  registry: ""
+  registry: ghcr.io
   # -- Image repository
-  repository: github-sts
+  repository: depthmark/github-sts
   # -- Image tag (defaults to Chart.appVersion)
-  tag: ""
+  tag: "0.1.0"
   # -- Image pull policy
   pullPolicy: IfNotPresent
 
@@ -150,7 +150,7 @@ oidc:
   allowedIssuers:
     - "https://token.actions.githubusercontent.com"
     # - "https://accounts.google.com"
-    # - "https://login.microsoftonline.com/{tenant}/v2.0"
+    # - "https://sts.windows.net/{tenant}/"
 
 # -- JTI replay prevention
 jti:
