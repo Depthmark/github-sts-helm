@@ -1,0 +1,279 @@
+# Default values for github-sts Helm chart
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+# -- Labels to add to all deployed objects
+commonLabels: {}
+
+# -- Number of replicas
+replicaCount: 1
+
+# -- Image configuration
+image:
+  # -- Image registry
+  registry: ghcr.io
+  # -- Image repository
+  repository: depthmark/github-sts
+  # -- Image tag (defaults to Chart.appVersion)
+  tag: "0.1.0"
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+
+# -- Secrets for pulling images from private registries
+imagePullSecrets: []
+#  - name: my-registry-secret
+
+# -- Service account configuration
+serviceAccount:
+  # -- Whether to create a service account
+  create: true
+  # -- Annotations to add to the service account
+  annotations: {}
+  # -- Name of the service account (defaults to fullname)
+  name: ""
+  # -- Whether to automount the service account token
+  automountServiceAccountToken: false
+
+# -- Service configuration
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+  annotations: {}
+
+# -- Ingress configuration (Kubernetes Ingress API)
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: github-sts.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: github-sts-tls
+    #   hosts:
+    #     - github-sts.example.com
+
+# -- HTTPRoute configuration (Gateway API)
+httproute:
+  enabled: false
+  annotations: {}
+  parentRefs: []
+    # - name: my-gateway
+    #   namespace: gateway-system
+    #   sectionName: https
+  hostnames: []
+    # - github-sts.example.com
+  # -- Port to route traffic to
+  port: 8080
+
+# -- Resource requests and limits
+resources: {}
+  # limits:
+  #   cpu: 500m
+  #   memory: 256Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# -- Autoscaling configuration
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# -- Probe configuration
+probes:
+  liveness:
+    enabled: true
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    enabled: true
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# -- Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# -- Container security context
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# -- Logging configuration
+logging:
+  # -- Application log level (DEBUG | INFO | WARNING | ERROR)
+  level: "INFO"
+  # -- Access log level (set to DEBUG to see health/ready requests)
+  accessLevel: "INFO"
+  # -- Suppress health/ready/metrics access logs at INFO level
+  suppressHealthLogs: true
+  # -- Audit log file settings
+  audit:
+    # -- Write audit events to a rotating file (for Promtail / log aggregator)
+    fileEnabled: true
+    # -- Path to audit log file inside the container
+    filePath: "/var/log/github-sts/audit.json"
+    # -- Max bytes per audit log file before rotation (10 MB)
+    fileMaxBytes: 10485760
+    # -- Number of rotated audit log files to keep
+    fileBackupCount: 5
+
+# -- Policy configuration
+policy:
+  backend: "github"
+  basePath: ".github/sts"
+  cacheTtlSeconds: 60
+
+# -- OIDC configuration
+oidc:
+  allowedIssuers:
+    - "https://token.actions.githubusercontent.com"
+    # - "https://accounts.google.com"
+    # - "https://sts.windows.net/{tenant}/"
+
+# -- JTI replay prevention
+jti:
+  backend: "memory"    # memory or redis
+  redisUrl: ""         # Required if backend=redis
+  ttlSeconds: 3600
+
+# -- Audit logging (legacy — prefer logging.audit above)
+# Kept for backward compatibility with existing FileAuditLogger.
+audit:
+  filePath: "/tmp/audit.log"
+  rotationPolicy: "daily"
+  rotationSizeBytes: 104857600  # 100MB
+
+# -- Metrics configuration
+metrics:
+  enabled: true
+  prefix: "pygithubsts"
+  # -- Rate limit polling configuration
+  rateLimitPoll:
+    # -- Enable periodic polling of GitHub rate limit API
+    enabled: true
+    # -- Polling interval in seconds
+    intervalSeconds: 60
+  # -- Reachability probe configuration
+  reachabilityProbe:
+    # -- Enable periodic GitHub API reachability probing
+    enabled: true
+    # -- Probe interval in seconds
+    intervalSeconds: 30
+
+# -- ServiceMonitor for Prometheus Operator
+serviceMonitor:
+  # -- Whether to create a ServiceMonitor
+  enabled: false
+  # -- Namespace where the ServiceMonitor should be created (defaults to release namespace)
+  namespace: ""
+  # -- Additional labels for the ServiceMonitor
+  labels: {}
+  # -- Annotations for the ServiceMonitor
+  annotations: {}
+  # -- Scrape interval
+  interval: 30s
+  # -- Scrape timeout
+  scrapeTimeout: 10s
+  # -- Path to scrape metrics from
+  path: /metrics
+  # -- Metric relabeling configs
+  metricRelabelings: []
+  # -- Relabeling configs
+  relabelings: []
+  # -- Honor labels
+  honorLabels: false
+
+# -- PodMonitor for Prometheus Operator (alternative to ServiceMonitor)
+podMonitor:
+  # -- Whether to create a PodMonitor
+  enabled: false
+  # -- Namespace where the PodMonitor should be created (defaults to release namespace)
+  namespace: ""
+  # -- Additional labels for the PodMonitor
+  labels: {}
+  # -- Annotations for the PodMonitor
+  annotations: {}
+  # -- Scrape interval
+  interval: 30s
+  # -- Scrape timeout
+  scrapeTimeout: 10s
+  # -- Path to scrape metrics from
+  path: /metrics
+  # -- Metric relabeling configs
+  metricRelabelings: []
+  # -- Relabeling configs
+  relabelings: []
+  # -- Honor labels
+  honorLabels: false
+
+# -- GitHub App configuration (required)
+# Each entry under apps is a GitHub App identified by name.
+# The app name is used in policy paths: {policy.basePath}/{appName}/{identity}.sts.yaml
+# Each app's private key must be stored in an existing Kubernetes Secret.
+# For a single-app deployment, define one entry (e.g. "default").
+github:
+  # -- GitHub Apps map. At least one app must be configured.
+  # apps:
+  #   default:
+  #     # -- GitHub App ID (required)
+  #     appId: "12345"
+  #     # -- Name of an existing Secret containing the private key (required)
+  #     existingSecret: "my-github-app-credentials"
+  #     # -- Key in the secret that holds the private key PEM (default: "github-app-private-key")
+  #     secretPrivateKeyKey: "github-app-private-key"
+  #
+  #   another-app:
+  #     appId: "67890"
+  #     existingSecret: "another-app-github-credentials"
+  apps: {}
+
+# -- Additional pod annotations
+podAnnotations: {}
+
+# -- Additional pod labels
+podLabels: {}
+
+# -- Node selector
+nodeSelector: {}
+
+# -- Tolerations
+tolerations: []
+
+# -- Affinity rules
+affinity: {}
+
+# -- Topology spread constraints
+topologySpreadConstraints: []
+
+# -- Extra environment variables
+extraEnv: []
+  # - name: MY_ENV_VAR
+  #   value: "my-value"
+
+# -- Extra volume mounts for the container
+extraVolumeMounts: []
+
+# -- Extra volumes for the pod
+extraVolumes: []
