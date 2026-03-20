@@ -82,11 +82,12 @@ tests:
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
-          value: "github-sts:v1.2.3"
+          value: "ghcr.io/depthmark/github-sts:v1.2.3"
 
   - it: should use custom repository
     template: deployment.yaml
     set:
+      image.registry: ""
       image.repository: my-registry.io/github-sts
       image.tag: latest
     asserts:
