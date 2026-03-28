@@ -46,19 +46,12 @@ resources:
     memory: 128Mi
 
 logging:
-  level: "INFO"
-  accessLevel: "INFO"
+  level: "info"
   suppressHealthLogs: true
-  audit:
-    fileEnabled: true
-    filePath: "/var/log/github-sts/audit.json"
-    fileMaxBytes: 10485760
-    fileBackupCount: 5
 
 policy:
-  backend: "github"
   basePath: ".github/sts"
-  cacheTtlSeconds: 120
+  cacheTtl: "120s"
 
 oidc:
   allowedIssuers:
@@ -67,17 +60,21 @@ oidc:
 
 jti:
   backend: "memory"
-  ttlSeconds: 3600
+  ttl: "1h"
+
+audit:
+  fileEnabled: true
+  filePath: "/var/log/github-sts/audit.json"
+  bufferSize: 1024
 
 metrics:
   enabled: true
-  prefix: "pygithubsts"
   rateLimitPoll:
     enabled: true
-    intervalSeconds: 60
+    interval: "60s"
   reachabilityProbe:
     enabled: true
-    intervalSeconds: 30
+    interval: "30s"
 
 serviceMonitor:
   enabled: true

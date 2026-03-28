@@ -46,11 +46,11 @@ tests:
   # -------------------------------------------------------------------------
   # Logging section
   # -------------------------------------------------------------------------
-  - it: should use default log level INFO
+  - it: should use default log level info
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'level: "INFO"'
+          pattern: 'log_level: "info"'
 
   - it: should use custom log level
     set:
@@ -58,19 +58,7 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'level: "DEBUG"'
-
-  - it: should configure audit logging
-    set:
-      logging.audit.fileEnabled: true
-      logging.audit.filePath: /var/log/audit.json
-    asserts:
-      - matchRegex:
-          path: data["config.yaml"]
-          pattern: "audit_file_enabled: true"
-      - matchRegex:
-          path: data["config.yaml"]
-          pattern: 'audit_file_path: "/var/log/audit.json"'
+          pattern: 'log_level: "debug"'
 
   - it: should set suppress health logs
     set:
@@ -87,29 +75,22 @@ tests:
     asserts:
       - matchRegex:
           path: data["config.yaml"]
-          pattern: 'backend: "github"'
-      - matchRegex:
-          path: data["config.yaml"]
           pattern: 'base_path: ".github/sts"'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "cache_ttl_seconds: 60"
+          pattern: 'cache_ttl: "60s"'
 
   - it: should use custom policy settings
     set:
-      policy.backend: "local"
       policy.basePath: "/policies"
-      policy.cacheTtlSeconds: 300
+      policy.cacheTtl: "300s"
     asserts:
-      - matchRegex:
-          path: data["config.yaml"]
-          pattern: 'backend: "local"'
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'base_path: "/policies"'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "cache_ttl_seconds: 300"
+          pattern: 'cache_ttl: "300s"'
 
   # -------------------------------------------------------------------------
   # OIDC section
@@ -151,7 +132,7 @@ tests:
           pattern: 'backend: "memory"'
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "ttl_seconds: 3600"
+          pattern: 'ttl: "1h"'
 
   - it: should configure Redis JTI backend
     set:
@@ -166,6 +147,25 @@ tests:
           pattern: 'redis_url: "redis://redis:6379/0"'
 
   # -------------------------------------------------------------------------
+  # Audit section
+  # -------------------------------------------------------------------------
+  - it: should configure audit logging
+    set:
+      audit.fileEnabled: true
+      audit.filePath: /var/log/audit.json
+      audit.bufferSize: 2048
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "file_enabled: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'file_path: "/var/log/audit.json"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "buffer_size: 2048"
+
+  # -------------------------------------------------------------------------
   # Metrics section
   # -------------------------------------------------------------------------
   - it: should enable metrics by default
@@ -173,33 +173,30 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "enabled: true"
-      - matchRegex:
-          path: data["config.yaml"]
-          pattern: 'prefix: "pygithubsts"'
 
   - it: should configure rate limit polling
     set:
       metrics.rateLimitPoll.enabled: false
-      metrics.rateLimitPoll.intervalSeconds: 120
+      metrics.rateLimitPoll.interval: "120s"
     asserts:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "rate_limit_poll_enabled: false"
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "rate_limit_poll_interval_seconds: 120"
+          pattern: 'rate_limit_poll_interval: "120s"'
 
   - it: should configure reachability probe
     set:
       metrics.reachabilityProbe.enabled: false
-      metrics.reachabilityProbe.intervalSeconds: 60
+      metrics.reachabilityProbe.interval: "60s"
     asserts:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "reachability_probe_enabled: false"
       - matchRegex:
           path: data["config.yaml"]
-          pattern: "reachability_probe_interval_seconds: 60"
+          pattern: 'reachability_probe_interval: "60s"'
 
   # -------------------------------------------------------------------------
   # Apps section

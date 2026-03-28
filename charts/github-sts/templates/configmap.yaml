@@ -9,20 +9,21 @@ data:
     server:
       host: "0.0.0.0"
       port: {{ .Values.service.targetPort }}
-      log_level: {{ .Values.logging.level | quote }}
-      logging:
-        level: {{ .Values.logging.level | quote }}
-        access_level: {{ .Values.logging.accessLevel | quote }}
-        suppress_health_logs: {{ .Values.logging.suppressHealthLogs }}
-        audit_file_enabled: {{ .Values.logging.audit.fileEnabled }}
-        audit_file_path: {{ .Values.logging.audit.filePath | quote }}
-        audit_file_max_bytes: {{ .Values.logging.audit.fileMaxBytes | int }}
-        audit_file_backup_count: {{ .Values.logging.audit.fileBackupCount | int }}
+      log_level: {{ .Values.logging.level | lower | quote }}
+      suppress_health_logs: {{ .Values.logging.suppressHealthLogs }}
+      shutdown_timeout: {{ .Values.server.shutdownTimeout | default "10s" | quote }}
 
-    policy:
-      backend: {{ .Values.policy.backend | quote }}
-      base_path: {{ .Values.policy.basePath | quote }}
-      cache_ttl_seconds: {{ .Values.policy.cacheTtlSeconds }}
+    {{- if .Values.github.apps }}
+    apps:
+      {{- range $appName, $appConfig := .Values.github.apps }}
+      {{ $appName }}:
+        app_id: {{ $appConfig.appId | int }}
+        private_key_path: {{ printf "/etc/github-sts/apps/%s/%s" $appName ($appConfig.secretPrivateKeyKey | default "github-app-private-key") | quote }}
+        {{- if $appConfig.orgPolicyRepo }}
+        org_policy_repo: {{ $appConfig.orgPolicyRepo | quote }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
 
     oidc:
       {{- if .Values.oidc.allowedIssuers }}
@@ -39,29 +40,20 @@ data:
       {{- if .Values.jti.redisUrl }}
       redis_url: {{ .Values.jti.redisUrl | quote }}
       {{- end }}
-      ttl_seconds: {{ .Values.jti.ttlSeconds }}
+      ttl: {{ .Values.jti.ttl | default "1h" | quote }}
+
+    policy:
+      base_path: {{ .Values.policy.basePath | quote }}
+      cache_ttl: {{ .Values.policy.cacheTtl | default "60s" | quote }}
 
     audit:
+      file_enabled: {{ .Values.audit.fileEnabled }}
       file_path: {{ .Values.audit.filePath | quote }}
-      rotation_policy: {{ .Values.audit.rotationPolicy | quote }}
-      rotation_size_bytes: {{ .Values.audit.rotationSizeBytes | int }}
+      buffer_size: {{ .Values.audit.bufferSize | default 1024 | int }}
 
     metrics:
       enabled: {{ .Values.metrics.enabled }}
-      prefix: {{ .Values.metrics.prefix | quote }}
       rate_limit_poll_enabled: {{ .Values.metrics.rateLimitPoll.enabled }}
-      rate_limit_poll_interval_seconds: {{ .Values.metrics.rateLimitPoll.intervalSeconds }}
+      rate_limit_poll_interval: {{ .Values.metrics.rateLimitPoll.interval | default "60s" | quote }}
       reachability_probe_enabled: {{ .Values.metrics.reachabilityProbe.enabled }}
-      reachability_probe_interval_seconds: {{ .Values.metrics.reachabilityProbe.intervalSeconds }}
-
-    {{- if .Values.github.apps }}
-    apps:
-      {{- range $appName, $appConfig := .Values.github.apps }}
-      {{ $appName }}:
-        app_id: {{ $appConfig.appId | int }}
-        private_key_path: {{ printf "/etc/github-sts/apps/%s/%s" $appName ($appConfig.secretPrivateKeyKey | default "github-app-private-key") | quote }}
-        {{- if $appConfig.orgPolicyRepo }}
-        org_policy_repo: {{ $appConfig.orgPolicyRepo | quote }}
-        {{- end }}
-      {{- end }}
-    {{- end }}
+      reachability_probe_interval: {{ .Values.metrics.reachabilityProbe.interval | default "30s" | quote }}

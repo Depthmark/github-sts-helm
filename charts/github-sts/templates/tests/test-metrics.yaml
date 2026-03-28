@@ -18,6 +18,6 @@ spec:
         - -c
         - |
           RESPONSE=$(wget -qO- http://{{ include "github-sts.fullname" . }}:{{ .Values.service.port }}/metrics)
-          echo "${RESPONSE}" | grep -q '{{ .Values.metrics.prefix }}_' || exit 1
+          echo "${RESPONSE}" | grep -q 'githubsts_' || exit 1
           echo "Metrics check passed"
 {{- end }}
