@@ -1,0 +1,58 @@
+Thank you for installing {{ include "github-sts.fullname" . }}!
+
+{{- if .Values.ingress.enabled }}
+
+The application is accessible via Ingress:
+{{- range .Values.ingress.hosts }}
+  - http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+
+{{- else if .Values.httproute.enabled }}
+
+The application is accessible via HTTPRoute:
+{{- range .Values.httproute.hostnames }}
+  - {{ . }}
+{{- end }}
+
+{{- else if contains "NodePort" .Values.service.type }}
+
+Get the application URL by running:
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "github-sts.fullname" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+
+{{- else if contains "LoadBalancer" .Values.service.type }}
+
+Get the application URL by running:
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+  kubectl get --namespace {{ .Release.Namespace }} svc {{ include "github-sts.fullname" . }} -w
+
+{{- else if contains "ClusterIP" .Values.service.type }}
+
+Access the application via port-forward:
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "github-sts.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  echo "Visit http://127.0.0.1:{{ .Values.service.port }}"
+
+{{- end }}
+
+{{- if not .Values.github.apps }}
+
+WARNING: No GitHub Apps configured!
+  Configure at least one app under github.apps with appId and existingSecret.
+  Example:
+    github:
+      apps:
+        default:
+          appId: "12345"
+          existingSecret: "my-github-app-credentials"
+{{- end }}
+
+{{- if .Values.serviceMonitor.enabled }}
+
+Prometheus ServiceMonitor is enabled. Metrics will be scraped from {{ .Values.serviceMonitor.path }}.
+{{- end }}
+
+{{- if .Values.podMonitor.enabled }}
+
+Prometheus PodMonitor is enabled. Metrics will be scraped from {{ .Values.podMonitor.path }}.
+{{- end }}

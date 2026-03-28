@@ -1,0 +1,128 @@
+suite: Template Helpers
+templates:
+  - deployment.yaml
+  - configmap.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # github-sts.fullname
+  # -------------------------------------------------------------------------
+  - it: should default fullname to release-chart
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-github-sts
+
+  - it: should use nameOverride in fullname
+    template: deployment.yaml
+    set:
+      nameOverride: custom-name
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-custom-name
+
+  - it: should use fullnameOverride verbatim
+    template: deployment.yaml
+    set:
+      fullnameOverride: my-full-name
+    asserts:
+      - equal:
+          path: metadata.name
+          value: my-full-name
+
+  - it: should use release name when it contains chart name
+    template: deployment.yaml
+    release:
+      name: github-sts
+    asserts:
+      - equal:
+          path: metadata.name
+          value: github-sts
+
+  # -------------------------------------------------------------------------
+  # github-sts.labels
+  # -------------------------------------------------------------------------
+  - it: should include all standard labels
+    template: deployment.yaml
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+            app.kubernetes.io/managed-by: Helm
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: "github-sts-.*"
+      - isNotNull:
+          path: metadata.labels["app.kubernetes.io/version"]
+
+  - it: should include common labels when set
+    template: deployment.yaml
+    set:
+      commonLabels:
+        team: platform
+        environment: staging
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            team: platform
+            environment: staging
+
+  # -------------------------------------------------------------------------
+  # github-sts.selectorLabels
+  # -------------------------------------------------------------------------
+  - it: should include selector labels on pod template
+    template: deployment.yaml
+    asserts:
+      - isSubset:
+          path: spec.selector.matchLabels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  # -------------------------------------------------------------------------
+  # github-sts.image
+  # -------------------------------------------------------------------------
+  - it: should default image tag to appVersion
+    template: deployment.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "^ghcr.io/depthmark/github-sts:.+"
+
+  - it: should use explicit tag over appVersion
+    template: deployment.yaml
+    set:
+      image.tag: v2.0.0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/depthmark/github-sts:v2.0.0"
+
+  - it: should prepend registry when set
+    template: deployment.yaml
+    set:
+      image.registry: ghcr.io
+      image.repository: depthmark/github-sts
+      image.tag: latest
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/depthmark/github-sts:latest"
+
+  - it: should not prepend registry when empty
+    template: deployment.yaml
+    set:
+      image.registry: ""
+      image.repository: my-repo
+      image.tag: v1
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "my-repo:v1"

@@ -1,0 +1,124 @@
+---
+name: Integration Test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - charts/**
+      - .github/workflows/integration.yml
+  push:
+    branches: [main]
+    paths:
+      - charts/**
+      - .github/workflows/integration.yml
+  workflow_call: {}
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  kind-integration:
+    name: Kind Integration Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
+        with:
+          cluster_name: github-sts-test
+
+      - name: Generate dummy RSA private key
+        run: |
+          openssl genrsa 2048 > /tmp/dummy-private-key.pem
+
+      - name: Create test namespace and secret
+        run: |
+          kubectl create namespace github-sts-test
+          kubectl create secret generic github-app-dummy-credentials \
+            --namespace github-sts-test \
+            --from-file=github-app-private-key=/tmp/dummy-private-key.pem
+
+      - name: Install chart
+        run: |
+          helm install github-sts charts/github-sts \
+            --namespace github-sts-test \
+            --set github.apps.default.appId=12345 \
+            --set github.apps.default.existingSecret=github-app-dummy-credentials \
+            --wait \
+            --timeout 120s
+
+      - name: Verify deployment is running
+        run: |
+          kubectl -n github-sts-test rollout status deployment/github-sts --timeout=60s
+          kubectl -n github-sts-test get pods -l app.kubernetes.io/name=github-sts
+
+      - name: Verify pod is ready
+        run: |
+          POD=$(kubectl -n github-sts-test get pod -l app.kubernetes.io/name=github-sts -o jsonpath='{.items[0].metadata.name}')
+          READY=$(kubectl -n github-sts-test get pod "$POD" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')
+          echo "Pod ${POD} Ready: ${READY}"
+          [ "$READY" = "True" ]
+
+      - name: Verify configmap contents
+        run: |
+          CONFIG=$(kubectl -n github-sts-test get configmap github-sts-config -o jsonpath='{.data.config\.yaml}')
+          echo "$CONFIG"
+          echo "$CONFIG" | grep -q 'app_id: 12345'
+          echo "$CONFIG" | grep -q 'port: 8080'
+          echo "$CONFIG" | grep -q 'backend: "github"'
+          echo "ConfigMap validation passed"
+
+      - name: Verify secret is mounted
+        run: |
+          POD=$(kubectl -n github-sts-test get pod -l app.kubernetes.io/name=github-sts -o jsonpath='{.items[0].metadata.name}')
+          # Check the volume mount exists (read-only filesystem, so we check via mount info)
+          kubectl -n github-sts-test get pod "$POD" -o jsonpath='{.spec.containers[0].volumeMounts[*].mountPath}' | grep -q '/etc/github-sts/apps/default'
+          echo "Secret volume mount verified"
+
+      - name: Verify service exists
+        run: |
+          kubectl -n github-sts-test get service github-sts
+          SVC_PORT=$(kubectl -n github-sts-test get service github-sts -o jsonpath='{.spec.ports[0].port}')
+          echo "Service port: ${SVC_PORT}"
+          [ "$SVC_PORT" = "8080" ]
+
+      - name: Run Helm tests (health, readiness, metrics)
+        run: |
+          helm test github-sts --namespace github-sts-test --timeout 60s
+
+      - name: Verify security context
+        run: |
+          POD=$(kubectl -n github-sts-test get pod -l app.kubernetes.io/name=github-sts -o jsonpath='{.items[0].metadata.name}')
+          RUN_AS_USER=$(kubectl -n github-sts-test get pod "$POD" -o jsonpath='{.spec.securityContext.runAsUser}')
+          RUN_AS_NON_ROOT=$(kubectl -n github-sts-test get pod "$POD" -o jsonpath='{.spec.securityContext.runAsNonRoot}')
+          READ_ONLY=$(kubectl -n github-sts-test get pod "$POD" -o jsonpath='{.spec.containers[0].securityContext.readOnlyRootFilesystem}')
+          echo "runAsUser: ${RUN_AS_USER}, runAsNonRoot: ${RUN_AS_NON_ROOT}, readOnlyRootFilesystem: ${READ_ONLY}"
+          [ "$RUN_AS_USER" = "1000" ]
+          [ "$RUN_AS_NON_ROOT" = "true" ]
+          [ "$READ_ONLY" = "true" ]
+          echo "Security context validation passed"
+
+      - name: Collect debug info on failure
+        if: failure()
+        run: |
+          echo "=== Pods ==="
+          kubectl -n github-sts-test get pods -o wide
+          echo "=== Pod Describe ==="
+          kubectl -n github-sts-test describe pods -l app.kubernetes.io/name=github-sts
+          echo "=== Pod Logs ==="
+          kubectl -n github-sts-test logs -l app.kubernetes.io/name=github-sts --tail=100
+          echo "=== Events ==="
+          kubectl -n github-sts-test get events --sort-by=.lastTimestamp

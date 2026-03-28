@@ -1,0 +1,306 @@
+suite: ConfigMap
+templates:
+  - configmap.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # Basic rendering
+  # -------------------------------------------------------------------------
+  - it: should render a ConfigMap
+    asserts:
+      - isKind:
+          of: ConfigMap
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: test-github-sts-config
+
+  - it: should include standard labels
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  # -------------------------------------------------------------------------
+  # Server section
+  # -------------------------------------------------------------------------
+  - it: should include server config with default port
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "port: 8080"
+
+  - it: should use custom target port in server config
+    set:
+      service.targetPort: 9090
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "port: 9090"
+
+  # -------------------------------------------------------------------------
+  # Logging section
+  # -------------------------------------------------------------------------
+  - it: should use default log level INFO
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'level: "INFO"'
+
+  - it: should use custom log level
+    set:
+      logging.level: DEBUG
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'level: "DEBUG"'
+
+  - it: should configure audit logging
+    set:
+      logging.audit.fileEnabled: true
+      logging.audit.filePath: /var/log/audit.json
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "audit_file_enabled: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'audit_file_path: "/var/log/audit.json"'
+
+  - it: should set suppress health logs
+    set:
+      logging.suppressHealthLogs: false
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "suppress_health_logs: false"
+
+  # -------------------------------------------------------------------------
+  # Policy section
+  # -------------------------------------------------------------------------
+  - it: should set policy defaults
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'backend: "github"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'base_path: ".github/sts"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "cache_ttl_seconds: 60"
+
+  - it: should use custom policy settings
+    set:
+      policy.backend: "local"
+      policy.basePath: "/policies"
+      policy.cacheTtlSeconds: 300
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'backend: "local"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'base_path: "/policies"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "cache_ttl_seconds: 300"
+
+  # -------------------------------------------------------------------------
+  # OIDC section
+  # -------------------------------------------------------------------------
+  - it: should include default OIDC issuer
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "https://token.actions.githubusercontent.com"
+
+  - it: should include multiple OIDC issuers
+    set:
+      oidc.allowedIssuers:
+        - "https://token.actions.githubusercontent.com"
+        - "https://accounts.google.com"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "https://token.actions.githubusercontent.com"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "https://accounts.google.com"
+
+  - it: should render empty issuers list when none specified
+    set:
+      oidc.allowedIssuers: []
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allowed_issuers: \\[\\]"
+
+  # -------------------------------------------------------------------------
+  # JTI section
+  # -------------------------------------------------------------------------
+  - it: should default JTI to memory backend
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'backend: "memory"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "ttl_seconds: 3600"
+
+  - it: should configure Redis JTI backend
+    set:
+      jti.backend: redis
+      jti.redisUrl: "redis://redis:6379/0"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'backend: "redis"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'redis_url: "redis://redis:6379/0"'
+
+  # -------------------------------------------------------------------------
+  # Metrics section
+  # -------------------------------------------------------------------------
+  - it: should enable metrics by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enabled: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'prefix: "pygithubsts"'
+
+  - it: should configure rate limit polling
+    set:
+      metrics.rateLimitPoll.enabled: false
+      metrics.rateLimitPoll.intervalSeconds: 120
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "rate_limit_poll_enabled: false"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "rate_limit_poll_interval_seconds: 120"
+
+  - it: should configure reachability probe
+    set:
+      metrics.reachabilityProbe.enabled: false
+      metrics.reachabilityProbe.intervalSeconds: 60
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "reachability_probe_enabled: false"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "reachability_probe_interval_seconds: 60"
+
+  # -------------------------------------------------------------------------
+  # Apps section
+  # -------------------------------------------------------------------------
+  - it: should not include apps section when no apps configured
+    set:
+      github.apps: {}
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "^apps:"
+
+  - it: should include single app configuration
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 12345"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "/etc/github-sts/apps/default/github-app-private-key"
+
+  - it: should include multiple apps
+    set:
+      github.apps:
+        deploy-bot:
+          appId: 111
+          existingSecret: "deploy-creds"
+        ci-bot:
+          appId: 222
+          existingSecret: "ci-creds"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 111"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 222"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "/etc/github-sts/apps/deploy-bot/"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "/etc/github-sts/apps/ci-bot/"
+
+  - it: should use custom secret key in private_key_path
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          secretPrivateKeyKey: "private-key.pem"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "/etc/github-sts/apps/default/private-key.pem"
+
+  - it: should include org_policy_repo when set
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          orgPolicyRepo: ".github"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'org_policy_repo: ".github"'
+
+  - it: should not include org_policy_repo when not set
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "org_policy_repo"
+
+  - it: should support org_policy_repo on some apps but not others
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          orgPolicyRepo: ".github"
+        deploy-bot:
+          appId: 67890
+          existingSecret: "deploy-creds"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'org_policy_repo: ".github"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 12345"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 67890"

@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # ============================================================================
+  # GitHub Actions - CI/CD Workflow Updates
+  # ============================================================================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+    open-pull-requests-limit: 5
+    pull-request-branch-name:
+      separator: "/"
+    labels:
+      - "ci"
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci(actions)"
+      include: "scope"
+    # Intelligent grouping for GitHub Actions
+    groups:
+      actions-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+      actions-major:
+        update-types:
+          - "major"
+    rebase-strategy: "auto"
+    allow:
+      # Prevent immediate updates after a release
+      # Waiting 3+ days ensures stability before bumping
+      - dependency-type: "all"

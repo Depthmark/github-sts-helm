@@ -1,0 +1,546 @@
+suite: Deployment
+templates:
+  - deployment.yaml
+  - configmap.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # Basic rendering
+  # -------------------------------------------------------------------------
+  - it: should render a Deployment
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: test-github-sts
+
+  - it: should include standard labels
+    template: deployment.yaml
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+            app.kubernetes.io/managed-by: Helm
+
+  - it: should include selector labels
+    template: deployment.yaml
+    asserts:
+      - isSubset:
+          path: spec.selector.matchLabels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  # -------------------------------------------------------------------------
+  # Replicas / HPA interaction
+  # -------------------------------------------------------------------------
+  - it: should omit replicas when autoscaling is enabled
+    template: deployment.yaml
+    set:
+      autoscaling.enabled: true
+    asserts:
+      - isNull:
+          path: spec.replicas
+
+  - it: should set replicas when autoscaling is disabled
+    template: deployment.yaml
+    set:
+      autoscaling.enabled: false
+      replicaCount: 3
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+
+  - it: should default to 1 replica
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+
+  # -------------------------------------------------------------------------
+  # Container image
+  # -------------------------------------------------------------------------
+  - it: should use default image from appVersion
+    template: deployment.yaml
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "github-sts:.*"
+
+  - it: should use custom image tag
+    template: deployment.yaml
+    set:
+      image.tag: v1.2.3
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/depthmark/github-sts:v1.2.3"
+
+  - it: should use custom repository
+    template: deployment.yaml
+    set:
+      image.registry: ""
+      image.repository: my-registry.io/github-sts
+      image.tag: latest
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "my-registry.io/github-sts:latest"
+
+  - it: should use registry prefix when set
+    template: deployment.yaml
+    set:
+      image.registry: ghcr.io
+      image.repository: depthmark/github-sts
+      image.tag: v1.0.0
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/depthmark/github-sts:v1.0.0"
+
+  - it: should use correct pull policy
+    template: deployment.yaml
+    set:
+      image.pullPolicy: Always
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].imagePullPolicy
+          value: Always
+
+  # -------------------------------------------------------------------------
+  # Environment variables
+  # -------------------------------------------------------------------------
+  - it: should always include PYGITHUBSTS_CONFIG_PATH env var
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PYGITHUBSTS_CONFIG_PATH
+            value: "/etc/github-sts/config.yaml"
+
+  - it: should render extra env vars
+    template: deployment.yaml
+    set:
+      extraEnv:
+        - name: LOG_FORMAT
+          value: json
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: LOG_FORMAT
+            value: json
+
+  # -------------------------------------------------------------------------
+  # Ports
+  # -------------------------------------------------------------------------
+  - it: should render http port
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: http
+            containerPort: 8080
+            protocol: TCP
+
+  - it: should use custom target port
+    template: deployment.yaml
+    set:
+      service.targetPort: 9090
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            name: http
+            containerPort: 9090
+            protocol: TCP
+
+  # -------------------------------------------------------------------------
+  # Health probes
+  # -------------------------------------------------------------------------
+  - it: should configure liveness probe
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.port
+          value: http
+
+  - it: should configure readiness probe
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /ready
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: http
+
+  - it: should disable liveness probe when set
+    template: deployment.yaml
+    set:
+      probes.liveness.enabled: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe
+
+  - it: should disable readiness probe when set
+    template: deployment.yaml
+    set:
+      probes.readiness.enabled: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe
+
+  - it: should use custom liveness probe settings
+    template: deployment.yaml
+    set:
+      probes.liveness.initialDelaySeconds: 30
+      probes.liveness.periodSeconds: 60
+      probes.liveness.timeoutSeconds: 5
+      probes.liveness.failureThreshold: 5
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.initialDelaySeconds
+          value: 30
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.periodSeconds
+          value: 60
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.timeoutSeconds
+          value: 5
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.failureThreshold
+          value: 5
+
+  # -------------------------------------------------------------------------
+  # Security context
+  # -------------------------------------------------------------------------
+  - it: should set pod security context
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 1000
+      - equal:
+          path: spec.template.spec.securityContext.fsGroup
+          value: 1000
+
+  - it: should set container security context
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: "ALL"
+
+  # -------------------------------------------------------------------------
+  # Resources
+  # -------------------------------------------------------------------------
+  - it: should not set resources by default
+    template: deployment.yaml
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].resources
+
+  - it: should set resource limits and requests
+    template: deployment.yaml
+    set:
+      resources:
+        limits:
+          cpu: 500m
+          memory: 256Mi
+        requests:
+          cpu: 100m
+          memory: 128Mi
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.cpu
+          value: 500m
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 256Mi
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.cpu
+          value: 100m
+      - equal:
+          path: spec.template.spec.containers[0].resources.requests.memory
+          value: 128Mi
+
+  # -------------------------------------------------------------------------
+  # Volumes / VolumeMounts
+  # -------------------------------------------------------------------------
+  - it: should mount config volume
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: config
+            mountPath: /etc/github-sts
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: config
+            configMap:
+              name: test-github-sts-config
+
+  - it: should mount tmp volume for read-only filesystem
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tmp
+            mountPath: /tmp
+
+  - it: should mount audit log volume when enabled
+    template: deployment.yaml
+    set:
+      logging.audit.fileEnabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: audit-log
+            mountPath: /var/log/github-sts
+
+  - it: should not mount audit log volume when disabled
+    template: deployment.yaml
+    set:
+      logging.audit.fileEnabled: false
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: audit-log
+            mountPath: /var/log/github-sts
+
+  - it: should mount GitHub App key volumes
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: github-app-default-key
+            mountPath: /etc/github-sts/apps/default
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: github-app-default-key
+            secret:
+              secretName: github-app-default-credentials
+              items:
+                - key: github-app-private-key
+                  path: github-app-private-key
+
+  - it: should mount multiple GitHub App key volumes
+    template: deployment.yaml
+    set:
+      github.apps:
+        app1:
+          appId: 111
+          existingSecret: "app1-credentials"
+        app2:
+          appId: 222
+          existingSecret: "app2-credentials"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: github-app-app1-key
+            mountPath: /etc/github-sts/apps/app1
+            readOnly: true
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: github-app-app2-key
+            mountPath: /etc/github-sts/apps/app2
+            readOnly: true
+
+  - it: should use custom secret key for GitHub App
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          secretPrivateKeyKey: "private-key.pem"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: github-app-default-key
+            secret:
+              secretName: my-secret
+              items:
+                - key: private-key.pem
+                  path: private-key.pem
+
+  - it: should render extra volumes and mounts
+    template: deployment.yaml
+    set:
+      extraVolumes:
+        - name: custom-config
+          configMap:
+            name: my-config
+      extraVolumeMounts:
+        - name: custom-config
+          mountPath: /etc/custom
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: custom-config
+            configMap:
+              name: my-config
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: custom-config
+            mountPath: /etc/custom
+
+  # -------------------------------------------------------------------------
+  # Service account
+  # -------------------------------------------------------------------------
+  - it: should use generated service account name
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: test-github-sts
+
+  - it: should use custom service account name
+    template: deployment.yaml
+    set:
+      serviceAccount.name: custom-sa
+    asserts:
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: custom-sa
+
+  # -------------------------------------------------------------------------
+  # Scheduling
+  # -------------------------------------------------------------------------
+  - it: should set node selector
+    template: deployment.yaml
+    set:
+      nodeSelector:
+        kubernetes.io/os: linux
+    asserts:
+      - equal:
+          path: spec.template.spec.nodeSelector
+          value:
+            kubernetes.io/os: linux
+
+  - it: should set tolerations
+    template: deployment.yaml
+    set:
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: github-sts
+          effect: NoSchedule
+    asserts:
+      - contains:
+          path: spec.template.spec.tolerations
+          content:
+            key: dedicated
+            operator: Equal
+            value: github-sts
+            effect: NoSchedule
+
+  - it: should set affinity
+    template: deployment.yaml
+    set:
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+    asserts:
+      - isNotNull:
+          path: spec.template.spec.affinity.podAntiAffinity
+
+  - it: should set topology spread constraints
+    template: deployment.yaml
+    set:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.topologySpreadConstraints
+          count: 1
+
+  # -------------------------------------------------------------------------
+  # Annotations and labels
+  # -------------------------------------------------------------------------
+  - it: should include config checksum annotation
+    template: deployment.yaml
+    asserts:
+      - isNotNull:
+          path: spec.template.metadata.annotations["checksum/config"]
+
+  - it: should render custom pod annotations
+    template: deployment.yaml
+    set:
+      podAnnotations:
+        prometheus.io/scrape: "true"
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.annotations
+          content:
+            prometheus.io/scrape: "true"
+
+  - it: should render custom pod labels
+    template: deployment.yaml
+    set:
+      podLabels:
+        custom-label: test-value
+    asserts:
+      - isSubset:
+          path: spec.template.metadata.labels
+          content:
+            custom-label: test-value
+
+  # -------------------------------------------------------------------------
+  # Image pull secrets
+  # -------------------------------------------------------------------------
+  - it: should set image pull secrets
+    template: deployment.yaml
+    set:
+      imagePullSecrets:
+        - name: registry-creds
+    asserts:
+      - contains:
+          path: spec.template.spec.imagePullSecrets
+          content:
+            name: registry-creds

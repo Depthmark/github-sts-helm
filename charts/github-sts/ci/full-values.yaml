@@ -1,0 +1,105 @@
+# CI test values: full configuration with all features enabled
+replicaCount: 2
+
+image:
+  registry: "ghcr.io"
+  repository: "AlexandreODelisle/github-sts"
+  tag: "v1.0.0"
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::role/github-sts"
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: github-sts.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: github-sts-tls
+      hosts:
+        - github-sts.example.com
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+logging:
+  level: "INFO"
+  accessLevel: "INFO"
+  suppressHealthLogs: true
+  audit:
+    fileEnabled: true
+    filePath: "/var/log/github-sts/audit.json"
+    fileMaxBytes: 10485760
+    fileBackupCount: 5
+
+policy:
+  backend: "github"
+  basePath: ".github/sts"
+  cacheTtlSeconds: 120
+
+oidc:
+  allowedIssuers:
+    - "https://token.actions.githubusercontent.com"
+    - "https://accounts.google.com"
+
+jti:
+  backend: "memory"
+  ttlSeconds: 3600
+
+metrics:
+  enabled: true
+  prefix: "pygithubsts"
+  rateLimitPoll:
+    enabled: true
+    intervalSeconds: 60
+  reachabilityProbe:
+    enabled: true
+    intervalSeconds: 30
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+  honorLabels: true
+
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"
+      orgPolicyRepo: ".github"
+    deploy-bot:
+      appId: 67890
+      existingSecret: "deploy-bot-credentials"
+
+extraEnv:
+  - name: LOG_FORMAT
+    value: "json"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"

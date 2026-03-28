@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "github-sts.fullname" . }}-config
+  labels:
+    {{- include "github-sts.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      host: "0.0.0.0"
+      port: {{ .Values.service.targetPort }}
+      log_level: {{ .Values.logging.level | quote }}
+      logging:
+        level: {{ .Values.logging.level | quote }}
+        access_level: {{ .Values.logging.accessLevel | quote }}
+        suppress_health_logs: {{ .Values.logging.suppressHealthLogs }}
+        audit_file_enabled: {{ .Values.logging.audit.fileEnabled }}
+        audit_file_path: {{ .Values.logging.audit.filePath | quote }}
+        audit_file_max_bytes: {{ .Values.logging.audit.fileMaxBytes | int }}
+        audit_file_backup_count: {{ .Values.logging.audit.fileBackupCount | int }}
+
+    policy:
+      backend: {{ .Values.policy.backend | quote }}
+      base_path: {{ .Values.policy.basePath | quote }}
+      cache_ttl_seconds: {{ .Values.policy.cacheTtlSeconds }}
+
+    oidc:
+      {{- if .Values.oidc.allowedIssuers }}
+      allowed_issuers:
+      {{- range .Values.oidc.allowedIssuers }}
+        - {{ . | quote }}
+      {{- end }}
+      {{- else }}
+      allowed_issuers: []
+      {{- end }}
+
+    jti:
+      backend: {{ .Values.jti.backend | quote }}
+      {{- if .Values.jti.redisUrl }}
+      redis_url: {{ .Values.jti.redisUrl | quote }}
+      {{- end }}
+      ttl_seconds: {{ .Values.jti.ttlSeconds }}
+
+    audit:
+      file_path: {{ .Values.audit.filePath | quote }}
+      rotation_policy: {{ .Values.audit.rotationPolicy | quote }}
+      rotation_size_bytes: {{ .Values.audit.rotationSizeBytes | int }}
+
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      prefix: {{ .Values.metrics.prefix | quote }}
+      rate_limit_poll_enabled: {{ .Values.metrics.rateLimitPoll.enabled }}
+      rate_limit_poll_interval_seconds: {{ .Values.metrics.rateLimitPoll.intervalSeconds }}
+      reachability_probe_enabled: {{ .Values.metrics.reachabilityProbe.enabled }}
+      reachability_probe_interval_seconds: {{ .Values.metrics.reachabilityProbe.intervalSeconds }}
+
+    {{- if .Values.github.apps }}
+    apps:
+      {{- range $appName, $appConfig := .Values.github.apps }}
+      {{ $appName }}:
+        app_id: {{ $appConfig.appId | int }}
+        private_key_path: {{ printf "/etc/github-sts/apps/%s/%s" $appName ($appConfig.secretPrivateKeyKey | default "github-app-private-key") | quote }}
+        {{- if $appConfig.orgPolicyRepo }}
+        org_policy_repo: {{ $appConfig.orgPolicyRepo | quote }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
