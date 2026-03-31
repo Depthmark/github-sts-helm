@@ -65,7 +65,6 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
      │                          │                          │
      │  GET /sts/exchange       │                          │
      │  ?scope=org/repo         │                          │
-     │  (or ?scope=myorg)       │                          │
      │  &app=my-app             │                          │
      │  &identity=ci            │                          │
      │  Authorization: Bearer   │                          │
@@ -95,20 +94,7 @@ permissions:
   issues: write
 ```
 
-### Organization-Level Scope
-
-In addition to repository-level scope (`scope=org/repo`), github-sts supports organization-level scope (`scope=myorg`). To enable this, set `orgPolicyRepo` on the app configuration to specify where org-level trust policies live (e.g. `".github"`). Policies are then loaded from `{org}/{orgPolicyRepo}/{basePath}/{appName}/{identity}.sts.yaml`.
-
-```yaml
-github:
-  apps:
-    default:
-      appId: "12345"
-      existingSecret: "my-github-app-credentials"
-      orgPolicyRepo: ".github"
-```
-
-See the [upstream documentation](https://github.com/Depthmark/github-sts#trust-policies) for full policy schema, org-level policy examples, and repository restrictions.
+See the [upstream documentation](https://github.com/Depthmark/github-sts#trust-policies) for full policy schema and examples.
 
 ## GitHub Actions Usage
 
@@ -331,7 +317,6 @@ jobs:
 | `github.apps.<name>.appId` | — | GitHub App numeric ID (required) |
 | `github.apps.<name>.existingSecret` | — | Name of an existing Secret containing the private key (required) |
 | `github.apps.<name>.secretPrivateKeyKey` | `"github-app-private-key"` | Key in the secret that holds the private key PEM |
-| `github.apps.<name>.orgPolicyRepo` | — | Repository name for org-level trust policies (e.g. `".github"`). Enables organization-level scope for this app. |
 
 ### Pod Scheduling
 

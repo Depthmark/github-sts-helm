@@ -106,7 +106,7 @@ jobs:
           RUN_AS_NON_ROOT=$(kubectl -n github-sts-test get pod "$POD" -o jsonpath='{.spec.securityContext.runAsNonRoot}')
           READ_ONLY=$(kubectl -n github-sts-test get pod "$POD" -o jsonpath='{.spec.containers[0].securityContext.readOnlyRootFilesystem}')
           echo "runAsUser: ${RUN_AS_USER}, runAsNonRoot: ${RUN_AS_NON_ROOT}, readOnlyRootFilesystem: ${READ_ONLY}"
-          [ "$RUN_AS_USER" = "1000" ]
+          [ "$RUN_AS_USER" = "65534" ]
           [ "$RUN_AS_NON_ROOT" = "true" ]
           [ "$READ_ONLY" = "true" ]
           echo "Security context validation passed"
