@@ -78,7 +78,7 @@ jobs:
           echo "$CONFIG"
           echo "$CONFIG" | grep -q 'app_id: 12345'
           echo "$CONFIG" | grep -q 'port: 8080'
-          echo "$CONFIG" | grep -q 'backend: "github"'
+          echo "$CONFIG" | grep -q 'backend: "memory"'
           echo "ConfigMap validation passed"
 
       - name: Verify secret is mounted
