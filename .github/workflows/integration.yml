@@ -27,9 +27,16 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout
+      - name: Checkout helm chart
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          persist-credentials: false
+
+      - name: Checkout github-sts source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          repository: Depthmark/github-sts
+          path: github-sts-src
           persist-credentials: false
 
       - name: Set up Helm
@@ -39,6 +46,18 @@ jobs:
         uses: helm/kind-action@a1b0e391336a6ee6713a0583f8c6240d70863de3 # v1.12.0
         with:
           cluster_name: github-sts-test
+
+      - name: Read appVersion from Chart.yaml
+        id: chart
+        run: |
+          APP_VERSION=$(grep '^appVersion:' charts/github-sts/Chart.yaml | awk '{print $2}')
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Building image with tag: ${APP_VERSION}"
+
+      - name: Build and load image into Kind
+        run: |
+          docker build -t ghcr.io/depthmark/github-sts:${{ steps.chart.outputs.app_version }} github-sts-src/
+          kind load docker-image ghcr.io/depthmark/github-sts:${{ steps.chart.outputs.app_version }} --name github-sts-test
 
       - name: Generate dummy RSA private key
         run: |
@@ -57,6 +76,7 @@ jobs:
             --namespace github-sts-test \
             --set github.apps.default.appId=12345 \
             --set github.apps.default.existingSecret=github-app-dummy-credentials \
+            --set image.pullPolicy=Never \
             --wait \
             --timeout 120s
 

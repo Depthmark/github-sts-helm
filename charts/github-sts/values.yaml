@@ -19,7 +19,7 @@ image:
   # -- Image repository
   repository: depthmark/github-sts
   # -- Image tag (defaults to Chart.appVersion)
-  tag: "0.1.0"
+  tag: ""
   # -- Image pull policy
   pullPolicy: IfNotPresent
 
