@@ -1,0 +1,115 @@
+# CI test values: full configuration with all features enabled
+replicaCount: 2
+
+image:
+  registry: "ghcr.io"
+  repository: "AlexandreODelisle/github-sts"
+  tag: "v1.0.0"
+
+serviceAccount:
+  create: true
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::role/github-sts"
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: github-sts.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: github-sts-tls
+      hosts:
+        - github-sts.example.com
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 75
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+server:
+  shutdownTimeout: "15s"
+  trustForwardedHeaders: true
+
+logging:
+  level: "info"
+  suppressHealthLogs: true
+
+policy:
+  basePath: ".github/sts"
+  cacheTtl: "120s"
+
+oidc:
+  allowedIssuers:
+    - "https://token.actions.githubusercontent.com"
+    - "https://accounts.google.com"
+
+jti:
+  backend: "memory"
+  ttl: "1h"
+
+audit:
+  fileEnabled: true
+  filePath: "/var/log/github-sts/audit.json"
+  bufferSize: 1024
+
+metrics:
+  enabled: true
+  authToken: "metrics-bearer-token"
+  rateLimitPoll:
+    enabled: true
+    interval: "60s"
+  reachabilityProbe:
+    enabled: true
+    interval: "30s"
+
+rateLimit:
+  enabled: true
+  rate: 20
+  burst: 50
+  exemptCidrs:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  scrapeTimeout: 10s
+  path: /metrics
+  honorLabels: true
+
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"
+      orgPolicyRepo: ".github"
+    deploy-bot:
+      appId: 67890
+      existingSecret: "deploy-bot-credentials"
+
+extraEnv:
+  - name: LOG_FORMAT
+    value: "json"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"

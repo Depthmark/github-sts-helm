@@ -1,0 +1,274 @@
+suite: Ingress and HTTPRoute
+templates:
+  - ingress.yaml
+  - httproute.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # =========================================================================
+  # Ingress
+  # =========================================================================
+  - it: should not create Ingress by default
+    template: ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create Ingress when enabled
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+    asserts:
+      - isKind:
+          of: Ingress
+      - hasDocuments:
+          count: 1
+
+  - it: should set Ingress name
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-github-sts
+
+  - it: should include standard labels on Ingress
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  - it: should set Ingress className
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.className: nginx
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+
+  - it: should not set Ingress className when empty
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.className: ""
+    asserts:
+      - notExists:
+          path: spec.ingressClassName
+
+  - it: should set Ingress annotations
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+        nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    asserts:
+      - equal:
+          path: metadata.annotations["cert-manager.io/cluster-issuer"]
+          value: letsencrypt-prod
+
+  - it: should configure default host rule
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: github-sts.example.com
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: Prefix
+
+  - it: should reference service in backend
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: test-github-sts
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 8080
+
+  - it: should configure TLS
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.tls:
+        - secretName: github-sts-tls
+          hosts:
+            - github-sts.example.com
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: github-sts-tls
+      - contains:
+          path: spec.tls[0].hosts
+          content: github-sts.example.com
+
+  - it: should not include TLS when not set
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.tls: []
+    asserts:
+      - notExists:
+          path: spec.tls
+
+  - it: should configure multiple hosts
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.hosts:
+        - host: sts.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+        - host: sts-internal.example.com
+          paths:
+            - path: /sts
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: spec.rules[0].host
+          value: sts.example.com
+      - equal:
+          path: spec.rules[1].host
+          value: sts-internal.example.com
+      - equal:
+          path: spec.rules[1].http.paths[0].path
+          value: /sts
+
+  # =========================================================================
+  # HTTPRoute
+  # =========================================================================
+  - it: should not create HTTPRoute by default
+    template: httproute.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create HTTPRoute when enabled
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+    asserts:
+      - isKind:
+          of: HTTPRoute
+      - hasDocuments:
+          count: 1
+
+  - it: should set HTTPRoute name
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-github-sts
+
+  - it: should include standard labels on HTTPRoute
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  - it: should configure parentRefs
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+          namespace: gateway-system
+          sectionName: https
+      httproute.hostnames:
+        - github-sts.example.com
+    asserts:
+      - equal:
+          path: spec.parentRefs[0].name
+          value: my-gateway
+      - equal:
+          path: spec.parentRefs[0].namespace
+          value: gateway-system
+      - equal:
+          path: spec.parentRefs[0].sectionName
+          value: https
+
+  - it: should set hostnames
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - sts.example.com
+        - sts-internal.example.com
+    asserts:
+      - contains:
+          path: spec.hostnames
+          content: sts.example.com
+      - contains:
+          path: spec.hostnames
+          content: sts-internal.example.com
+
+  - it: should set backend service port
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.port: 9090
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+    asserts:
+      - equal:
+          path: spec.rules[0].backendRefs[0].name
+          value: test-github-sts
+      - equal:
+          path: spec.rules[0].backendRefs[0].port
+          value: 9090
+
+  - it: should set HTTPRoute annotations
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+      httproute.annotations:
+        custom: value
+    asserts:
+      - equal:
+          path: metadata.annotations["custom"]
+          value: value

@@ -1,0 +1,94 @@
+suite: Service
+templates:
+  - service.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # Basic rendering
+  # -------------------------------------------------------------------------
+  - it: should render a Service
+    asserts:
+      - isKind:
+          of: Service
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: test-github-sts
+
+  # -------------------------------------------------------------------------
+  # Type and ports
+  # -------------------------------------------------------------------------
+  - it: should default to ClusterIP
+    asserts:
+      - equal:
+          path: spec.type
+          value: ClusterIP
+
+  - it: should use default port 8080
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            port: 8080
+            targetPort: http
+            protocol: TCP
+            name: http
+
+  - it: should use custom service type
+    set:
+      service.type: LoadBalancer
+    asserts:
+      - equal:
+          path: spec.type
+          value: LoadBalancer
+
+  - it: should use custom port
+    set:
+      service.port: 9090
+    asserts:
+      - contains:
+          path: spec.ports
+          content:
+            port: 9090
+            targetPort: http
+            protocol: TCP
+            name: http
+
+  # -------------------------------------------------------------------------
+  # Annotations
+  # -------------------------------------------------------------------------
+  - it: should not have annotations by default
+    asserts:
+      - notExists:
+          path: metadata.annotations
+
+  - it: should render annotations when provided
+    set:
+      service.annotations:
+        service.beta.kubernetes.io/aws-load-balancer-type: nlb
+    asserts:
+      - equal:
+          path: metadata.annotations["service.beta.kubernetes.io/aws-load-balancer-type"]
+          value: nlb
+
+  # -------------------------------------------------------------------------
+  # Labels & selectors
+  # -------------------------------------------------------------------------
+  - it: should include standard labels
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  - it: should use selector labels
+    asserts:
+      - isSubset:
+          path: spec.selector
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test

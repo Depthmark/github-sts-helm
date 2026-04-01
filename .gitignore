@@ -1,0 +1,14 @@
+# Editor/IDE
+.idea/
+.vscode/
+
+# Chart dependencies
+**/charts/*.tgz
+
+# Local development files
+scripts/
+
+# AIDLC
+.aidlc-rule-details
+.claude
+aidlc-docs

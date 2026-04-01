@@ -1,0 +1,13 @@
+# CI test values: multiple GitHub Apps deployment
+github:
+  apps:
+    deploy-bot:
+      appId: 11111
+      existingSecret: "deploy-bot-credentials"
+    release-bot:
+      appId: 22222
+      existingSecret: "release-bot-credentials"
+    ci-bot:
+      appId: 33333
+      existingSecret: "ci-bot-credentials"
+      secretPrivateKeyKey: "private-key.pem"

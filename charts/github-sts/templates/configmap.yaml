@@ -1,0 +1,76 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "github-sts.fullname" . }}-config
+  labels:
+    {{- include "github-sts.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      host: "0.0.0.0"
+      port: {{ .Values.service.targetPort }}
+      log_level: {{ .Values.logging.level | lower | quote }}
+      suppress_health_logs: {{ .Values.logging.suppressHealthLogs }}
+      shutdown_timeout: {{ .Values.server.shutdownTimeout | default "10s" | quote }}
+      trust_forwarded_headers: {{ .Values.server.trustForwardedHeaders | default false }}
+
+    {{- if .Values.github.apps }}
+    apps:
+      {{- range $appName, $appConfig := .Values.github.apps }}
+      {{ $appName }}:
+        app_id: {{ $appConfig.appId | int }}
+        private_key_path: {{ printf "/etc/github-sts/apps/%s/%s" $appName ($appConfig.secretPrivateKeyKey | default "github-app-private-key") | quote }}
+        {{- if $appConfig.orgPolicyRepo }}
+        org_policy_repo: {{ $appConfig.orgPolicyRepo | quote }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+
+    oidc:
+      {{- if .Values.oidc.allowedIssuers }}
+      allowed_issuers:
+      {{- range .Values.oidc.allowedIssuers }}
+        - {{ . | quote }}
+      {{- end }}
+      {{- else }}
+      allowed_issuers: []
+      {{- end }}
+
+    jti:
+      backend: {{ .Values.jti.backend | quote }}
+      {{- if .Values.jti.redisUrl }}
+      redis_url: {{ .Values.jti.redisUrl | quote }}
+      {{- end }}
+      ttl: {{ .Values.jti.ttl | default "1h" | quote }}
+
+    policy:
+      base_path: {{ .Values.policy.basePath | quote }}
+      cache_ttl: {{ .Values.policy.cacheTtl | default "60s" | quote }}
+
+    audit:
+      file_enabled: {{ .Values.audit.fileEnabled }}
+      file_path: {{ .Values.audit.filePath | quote }}
+      buffer_size: {{ .Values.audit.bufferSize | default 1024 | int }}
+
+    metrics:
+      enabled: {{ .Values.metrics.enabled }}
+      {{- if .Values.metrics.authToken }}
+      auth_token: {{ .Values.metrics.authToken | quote }}
+      {{- end }}
+      rate_limit_poll_enabled: {{ .Values.metrics.rateLimitPoll.enabled }}
+      rate_limit_poll_interval: {{ .Values.metrics.rateLimitPoll.interval | default "60s" | quote }}
+      reachability_probe_enabled: {{ .Values.metrics.reachabilityProbe.enabled }}
+      reachability_probe_interval: {{ .Values.metrics.reachabilityProbe.interval | default "30s" | quote }}
+
+    rate_limit:
+      enabled: {{ .Values.rateLimit.enabled | default false }}
+      rate: {{ .Values.rateLimit.rate | default 10 }}
+      burst: {{ .Values.rateLimit.burst | default 20 | int }}
+      {{- if .Values.rateLimit.exemptCidrs }}
+      exempt_cidrs:
+      {{- range .Values.rateLimit.exemptCidrs }}
+        - {{ . | quote }}
+      {{- end }}
+      {{- else }}
+      exempt_cidrs: []
+      {{- end }}
