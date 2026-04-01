@@ -124,6 +124,8 @@ securityContext:
 server:
   # -- Graceful shutdown timeout (Go duration string)
   shutdownTimeout: "10s"
+  # -- Trust X-Forwarded-For headers for client IP (enable when behind a reverse proxy)
+  trustForwardedHeaders: false
 
 # -- Logging configuration
 logging:
@@ -167,6 +169,8 @@ audit:
 # -- Metrics configuration
 metrics:
   enabled: true
+  # -- Bearer token for /metrics endpoint (empty = unauthenticated)
+  authToken: ""
   # -- Rate limit polling configuration
   rateLimitPoll:
     # -- Enable periodic polling of GitHub rate limit API
@@ -225,6 +229,20 @@ podMonitor:
   relabelings: []
   # -- Honor labels
   honorLabels: false
+
+# -- Per-IP rate limiting on the /sts/exchange endpoint
+rateLimit:
+  # -- Enable per-IP rate limiting
+  enabled: false
+  # -- Requests per second per IP
+  rate: 10
+  # -- Maximum burst size per IP
+  burst: 20
+  # -- CIDR ranges exempt from rate limiting
+  exemptCidrs: []
+  # - "10.0.0.0/8"
+  # - "172.16.0.0/12"
+  # - "192.168.0.0/16"
 
 # -- GitHub App configuration (required)
 # Each entry under apps is a GitHub App identified by name.

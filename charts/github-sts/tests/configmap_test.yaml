@@ -43,6 +43,20 @@ tests:
           path: data["config.yaml"]
           pattern: "port: 9090"
 
+  - it: should set trust_forwarded_headers to false by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "trust_forwarded_headers: false"
+
+  - it: should enable trust_forwarded_headers when set
+    set:
+      server.trustForwardedHeaders: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "trust_forwarded_headers: true"
+
   # -------------------------------------------------------------------------
   # Logging section
   # -------------------------------------------------------------------------
@@ -186,6 +200,20 @@ tests:
           path: data["config.yaml"]
           pattern: 'rate_limit_poll_interval: "120s"'
 
+  - it: should not include auth_token when empty
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "auth_token"
+
+  - it: should include auth_token when set
+    set:
+      metrics.authToken: "my-secret-token"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'auth_token: "my-secret-token"'
+
   - it: should configure reachability probe
     set:
       metrics.reachabilityProbe.enabled: false
@@ -197,6 +225,51 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: 'reachability_probe_interval: "60s"'
+
+  # -------------------------------------------------------------------------
+  # Rate limit section
+  # -------------------------------------------------------------------------
+  - it: should disable rate limiting by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "rate_limit:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "enabled: false"
+
+  - it: should enable rate limiting with custom values
+    set:
+      rateLimit.enabled: true
+      rateLimit.rate: 20
+      rateLimit.burst: 50
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "rate: 20"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "burst: 50"
+
+  - it: should render exempt CIDRs when specified
+    set:
+      rateLimit.enabled: true
+      rateLimit.exemptCidrs:
+        - "10.0.0.0/8"
+        - "172.16.0.0/12"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "10.0.0.0/8"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "172.16.0.0/12"
+
+  - it: should render empty exempt_cidrs when not specified
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "exempt_cidrs: \\[\\]"
 
   # -------------------------------------------------------------------------
   # Apps section

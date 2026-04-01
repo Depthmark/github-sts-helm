@@ -12,6 +12,7 @@ data:
       log_level: {{ .Values.logging.level | lower | quote }}
       suppress_health_logs: {{ .Values.logging.suppressHealthLogs }}
       shutdown_timeout: {{ .Values.server.shutdownTimeout | default "10s" | quote }}
+      trust_forwarded_headers: {{ .Values.server.trustForwardedHeaders | default false }}
 
     {{- if .Values.github.apps }}
     apps:
@@ -53,7 +54,23 @@ data:
 
     metrics:
       enabled: {{ .Values.metrics.enabled }}
+      {{- if .Values.metrics.authToken }}
+      auth_token: {{ .Values.metrics.authToken | quote }}
+      {{- end }}
       rate_limit_poll_enabled: {{ .Values.metrics.rateLimitPoll.enabled }}
       rate_limit_poll_interval: {{ .Values.metrics.rateLimitPoll.interval | default "60s" | quote }}
       reachability_probe_enabled: {{ .Values.metrics.reachabilityProbe.enabled }}
       reachability_probe_interval: {{ .Values.metrics.reachabilityProbe.interval | default "30s" | quote }}
+
+    rate_limit:
+      enabled: {{ .Values.rateLimit.enabled | default false }}
+      rate: {{ .Values.rateLimit.rate | default 10 }}
+      burst: {{ .Values.rateLimit.burst | default 20 | int }}
+      {{- if .Values.rateLimit.exemptCidrs }}
+      exempt_cidrs:
+      {{- range .Values.rateLimit.exemptCidrs }}
+        - {{ . | quote }}
+      {{- end }}
+      {{- else }}
+      exempt_cidrs: []
+      {{- end }}

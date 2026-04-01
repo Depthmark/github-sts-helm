@@ -45,6 +45,10 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+server:
+  shutdownTimeout: "15s"
+  trustForwardedHeaders: true
+
 logging:
   level: "info"
   suppressHealthLogs: true
@@ -69,12 +73,21 @@ audit:
 
 metrics:
   enabled: true
+  authToken: "metrics-bearer-token"
   rateLimitPoll:
     enabled: true
     interval: "60s"
   reachabilityProbe:
     enabled: true
     interval: "30s"
+
+rateLimit:
+  enabled: true
+  rate: 20
+  burst: 50
+  exemptCidrs:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
 
 serviceMonitor:
   enabled: true

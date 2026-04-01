@@ -118,13 +118,13 @@ tests:
   # -------------------------------------------------------------------------
   # Environment variables
   # -------------------------------------------------------------------------
-  - it: should always include PYGITHUBSTS_CONFIG_PATH env var
+  - it: should always include GITHUBSTS_CONFIG_PATH env var
     template: deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
           content:
-            name: PYGITHUBSTS_CONFIG_PATH
+            name: GITHUBSTS_CONFIG_PATH
             value: "/etc/github-sts/config.yaml"
 
   - it: should render extra env vars
@@ -236,10 +236,10 @@ tests:
           value: true
       - equal:
           path: spec.template.spec.securityContext.runAsUser
-          value: 1000
+          value: 65534
       - equal:
           path: spec.template.spec.securityContext.fsGroup
-          value: 1000
+          value: 65534
 
   - it: should set container security context
     template: deployment.yaml
@@ -329,7 +329,7 @@ tests:
   - it: should not mount audit log volume when disabled
     template: deployment.yaml
     set:
-      logging.audit.fileEnabled: false
+      audit.fileEnabled: false
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].volumeMounts
