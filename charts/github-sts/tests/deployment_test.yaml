@@ -254,6 +254,36 @@ tests:
           path: spec.template.spec.containers[0].securityContext.capabilities.drop
           content: "ALL"
 
+  - it: should set RuntimeDefault seccomp profile on the pod
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: should set RuntimeDefault seccomp profile on the container
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: should disable service account token automount on the PodSpec by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: should honor automountServiceAccountToken=true on the PodSpec
+    template: deployment.yaml
+    set:
+      serviceAccount.automountServiceAccountToken: true
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: true
+
   # -------------------------------------------------------------------------
   # Resources
   # -------------------------------------------------------------------------
