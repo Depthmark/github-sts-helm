@@ -87,6 +87,56 @@ httproute:
   # -- Port to route traffic to
   port: 8080
 
+# NetworkPolicy configuration. Two parallel templates are supported and both
+# default off. Pick the one your CNI implements (or both for defense-in-depth).
+networkPolicy:
+  # Native NetworkPolicy (networking.k8s.io/v1). Works on any CNI that
+  # implements the upstream NetworkPolicy API, but cannot match external
+  # destinations by hostname — CIDR allow-lists must be maintained manually.
+  native:
+    # -- Render a native NetworkPolicy. Sets policyTypes: [Ingress, Egress];
+    # rules not listed are denied.
+    enabled: false
+    # -- NetworkPolicyPeer entries allowed to reach the Service port. Empty
+    # list means no in-cluster ingress is permitted.
+    from: []
+      # - podSelector: {}
+      # - namespaceSelector:
+      #     matchLabels:
+      #       kubernetes.io/metadata.name: ingress-nginx
+    # -- External CIDR ranges allowed for egress on TCP 443 (e.g. GitHub API,
+    # JWKS issuer hosts). Operators must populate this for their environment.
+    cidrs: []
+      # - 140.82.112.0/20
+    # -- Free-form ingress rules merged into the policy (NetworkPolicyIngressRule shape).
+    extraIngress: []
+    # -- Free-form egress rules merged into the policy (NetworkPolicyEgressRule shape).
+    extraEgress: []
+  # CiliumNetworkPolicy (cilium.io/v2). Requires the Cilium CRD. Supports
+  # FQDN-based egress so hostname allow-lists don't need CIDR maintenance.
+  cilium:
+    # -- Render a CiliumNetworkPolicy.
+    enabled: false
+    # -- EndpointSelector entries allowed to reach the Service port.
+    fromEndpoints: []
+      # - matchLabels:
+      #     io.kubernetes.pod.namespace: ingress-nginx
+    # -- FQDNSelector entries allowed for egress on TCP 443. Each entry is a
+    # `matchName` or `matchPattern` map.
+    fqdns: []
+      # - matchName: api.github.com
+      # - matchPattern: "*.githubusercontent.com"
+    # -- Append the host of each `oidc.allowedIssuers` URL to the FQDN
+    # allow-list as a `matchName` entry. Disable to manage the list manually.
+    deriveJwksHostsFromIssuers: true
+    # -- Free-form ingress rules merged into the policy.
+    extraIngress: []
+    # -- Free-form egress rules merged into the policy.
+    extraEgress: []
+  # -- Allow egress to kube-dns (UDP/TCP 53). Applies to whichever policy
+  # kinds are enabled. Required for any FQDN/external lookup to resolve.
+  allowKubeDns: true
+
 # -- Resource requests and limits
 resources: {}
   # limits:

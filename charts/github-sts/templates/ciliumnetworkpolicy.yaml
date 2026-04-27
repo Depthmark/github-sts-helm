@@ -1,0 +1,65 @@
+{{- if .Values.networkPolicy.cilium.enabled -}}
+{{- $cilium := .Values.networkPolicy.cilium -}}
+{{- $fqdns := default (list) $cilium.fqdns -}}
+{{- if $cilium.deriveJwksHostsFromIssuers -}}
+  {{- range .Values.oidc.allowedIssuers -}}
+    {{- $u := urlParse . -}}
+    {{- if $u.host -}}
+      {{- $fqdns = append $fqdns (dict "matchName" $u.host) -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+{{- $renderIngress := or (gt (len $cilium.fromEndpoints) 0) (gt (len $cilium.extraIngress) 0) -}}
+{{- $renderEgress := or .Values.networkPolicy.allowKubeDns (gt (len $fqdns) 0) (gt (len $cilium.extraEgress) 0) -}}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: {{ include "github-sts.fullname" . }}
+  labels:
+    {{- include "github-sts.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchLabels:
+      {{- include "github-sts.selectorLabels" . | nindent 6 }}
+  {{- if $renderIngress }}
+  ingress:
+    {{- with $cilium.fromEndpoints }}
+    - fromEndpoints:
+        {{- toYaml . | nindent 8 }}
+      toPorts:
+        - ports:
+            - port: {{ $.Values.service.targetPort | quote }}
+              protocol: TCP
+    {{- end }}
+    {{- with $cilium.extraIngress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+  {{- if $renderEgress }}
+  egress:
+    {{- if .Values.networkPolicy.allowKubeDns }}
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: ANY
+          rules:
+            dns:
+              - matchPattern: "*"
+    {{- end }}
+    {{- with $fqdns }}
+    - toFQDNs:
+        {{- toYaml . | nindent 8 }}
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+    {{- end }}
+    {{- with $cilium.extraEgress }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- end }}
+{{- end }}
