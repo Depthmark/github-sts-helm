@@ -1,4 +1,4 @@
-.PHONY: lint lint-ci template unittest ci clean act act-lint act-unittest act-integration
+.PHONY: lint lint-ci template unittest ci clean helm-docs helm-docs-check act act-lint act-unittest act-integration
 
 # Lint chart (strict mode)
 lint:
@@ -20,7 +20,16 @@ unittest:
 	helm unittest charts/github-sts
 
 # Run all local checks
-ci: lint lint-ci template unittest
+ci: lint lint-ci template unittest helm-docs-check
+
+# Generate helm documentation
+helm-docs:
+	helm-docs
+
+# Check that helm documentation is up to date
+helm-docs-check:
+	helm-docs
+	@git diff --quiet -- charts/*/README.md || (echo "ERROR: README.md is out of date. Run 'make helm-docs' and commit the changes." && exit 1)
 
 # Clean generated artifacts
 clean:
