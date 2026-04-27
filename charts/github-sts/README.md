@@ -1,8 +1,17 @@
-# GitHub STS Helm Chart
+# github-sts
+
+![Version: 0.0.2](https://img.shields.io/badge/Version-0.0.2-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.2](https://img.shields.io/badge/AppVersion-0.0.2-informational?style=flat-square)
 
 A Kubernetes Helm chart for deploying [github-sts](https://github.com/Depthmark/github-sts) — a Python-based Security Token Service (STS) for the GitHub API.
 
 Workloads with OIDC tokens (GitHub Actions, Azure, Google Cloud, etc.) exchange them for short-lived, scoped GitHub installation tokens. No PATs required. Supports multiple GitHub Apps with YAML-based configuration (ideal for Kubernetes ConfigMaps).
+
+**Homepage:** <https://github.com/Depthmark/github-sts-helm>
+
+## Source Code
+
+* <https://github.com/Depthmark/github-sts-helm>
+* <https://github.com/Depthmark/github-sts>
 
 ## Prerequisites
 
@@ -125,217 +134,111 @@ jobs:
         run: gh issue list
 ```
 
-## Values Reference
+## Values
 
-### General
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `nameOverride` | `""` | Override the chart name |
-| `fullnameOverride` | `""` | Override the full release name |
-| `commonLabels` | `{}` | Labels to add to all deployed objects |
-| `replicaCount` | `1` | Number of replicas |
-
-### Image
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `image.registry` | `""` | Image registry (e.g., `ghcr.io`) |
-| `image.repository` | `github-sts` | Image repository |
-| `image.tag` | `""` | Image tag (defaults to Chart `appVersion`) |
-| `image.pullPolicy` | `IfNotPresent` | Image pull policy |
-| `imagePullSecrets` | `[]` | Secrets for pulling images from private registries |
-
-### Service Account
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `serviceAccount.create` | `true` | Whether to create a service account |
-| `serviceAccount.annotations` | `{}` | Annotations to add to the service account |
-| `serviceAccount.name` | `""` | Name of the service account (defaults to fullname) |
-| `serviceAccount.automountServiceAccountToken` | `false` | Whether to automount the service account token |
-
-### Service
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `service.type` | `ClusterIP` | Service type (`ClusterIP`, `NodePort`, `LoadBalancer`) |
-| `service.port` | `8080` | Service port |
-| `service.targetPort` | `8080` | Container target port |
-| `service.annotations` | `{}` | Service annotations |
-
-### Ingress
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `ingress.enabled` | `false` | Enable Ingress (traditional Kubernetes API) |
-| `ingress.className` | `""` | Ingress class name (e.g., `nginx`) |
-| `ingress.annotations` | `{}` | Ingress annotations |
-| `ingress.hosts` | `[{host: "github-sts.example.com", paths: [{path: "/", pathType: "Prefix"}]}]` | Ingress host rules |
-| `ingress.tls` | `[]` | TLS configuration |
-
-### HTTPRoute (Gateway API)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `httproute.enabled` | `false` | Enable HTTPRoute (Gateway API) |
-| `httproute.annotations` | `{}` | HTTPRoute annotations |
-| `httproute.parentRefs` | `[]` | Gateway parent references |
-| `httproute.hostnames` | `[]` | Hostnames for routing |
-| `httproute.port` | `8080` | Port to route traffic to |
-
-### Resources
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `resources` | `{}` | CPU/memory requests and limits |
-
-### Autoscaling
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `autoscaling.enabled` | `false` | Enable Horizontal Pod Autoscaler |
-| `autoscaling.minReplicas` | `2` | Minimum number of replicas |
-| `autoscaling.maxReplicas` | `10` | Maximum number of replicas |
-| `autoscaling.targetCPUUtilizationPercentage` | `80` | Target CPU utilization percentage |
-| `autoscaling.targetMemoryUtilizationPercentage` | — | Target memory utilization percentage |
-
-### Probes
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `probes.liveness.enabled` | `true` | Enable liveness probe (`/health`) |
-| `probes.liveness.initialDelaySeconds` | `10` | Initial delay before liveness probe |
-| `probes.liveness.periodSeconds` | `30` | Period between liveness probes |
-| `probes.liveness.timeoutSeconds` | `3` | Timeout for liveness probe |
-| `probes.liveness.failureThreshold` | `3` | Failure threshold for liveness probe |
-| `probes.readiness.enabled` | `true` | Enable readiness probe (`/ready`) |
-| `probes.readiness.initialDelaySeconds` | `5` | Initial delay before readiness probe |
-| `probes.readiness.periodSeconds` | `10` | Period between readiness probes |
-| `probes.readiness.timeoutSeconds` | `3` | Timeout for readiness probe |
-| `probes.readiness.failureThreshold` | `3` | Failure threshold for readiness probe |
-
-### Security
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `podSecurityContext.runAsNonRoot` | `true` | Require non-root user |
-| `podSecurityContext.runAsUser` | `1000` | UID to run as |
-| `podSecurityContext.fsGroup` | `1000` | Filesystem group |
-| `securityContext.allowPrivilegeEscalation` | `false` | Disallow privilege escalation |
-| `securityContext.readOnlyRootFilesystem` | `true` | Read-only root filesystem |
-| `securityContext.capabilities.drop` | `["ALL"]` | Linux capabilities to drop |
-
-### Logging
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `logging.level` | `"INFO"` | Application log level (`DEBUG` \| `INFO` \| `WARNING` \| `ERROR`) |
-| `logging.accessLevel` | `"INFO"` | Access log level (set to `DEBUG` to see health/ready requests) |
-| `logging.suppressHealthLogs` | `true` | Suppress health/ready/metrics access logs at INFO level |
-| `logging.audit.fileEnabled` | `true` | Write audit events to a rotating file |
-| `logging.audit.filePath` | `"/var/log/github-sts/audit.json"` | Path to audit log file inside the container |
-| `logging.audit.fileMaxBytes` | `10485760` | Max bytes per audit log file before rotation (10 MB) |
-| `logging.audit.fileBackupCount` | `5` | Number of rotated audit log files to keep |
-
-### Policy
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `policy.backend` | `"github"` | Policy storage backend |
-| `policy.basePath` | `".github/sts"` | Base path in repos for trust policies |
-| `policy.cacheTtlSeconds` | `60` | Policy cache TTL in seconds (0 = disable) |
-
-### OIDC
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `oidc.allowedIssuers` | `["https://token.actions.githubusercontent.com"]` | Allowed OIDC issuers (empty list = allow any) |
-
-### JTI Replay Prevention
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `jti.backend` | `"memory"` | JTI backend (`memory` \| `redis`) |
-| `jti.redisUrl` | `""` | Redis connection URL (required if backend=redis) |
-| `jti.ttlSeconds` | `3600` | How long to remember consumed JTIs |
-
-### Audit (Legacy)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `audit.filePath` | `"/tmp/audit.log"` | Audit log file path |
-| `audit.rotationPolicy` | `"daily"` | Rotation policy (`daily` \| `size`) |
-| `audit.rotationSizeBytes` | `104857600` | Max bytes before rotation (100 MB) |
-
-### Metrics
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `metrics.enabled` | `true` | Enable Prometheus metrics endpoint (`/metrics`) |
-| `metrics.prefix` | `"pygithubsts"` | Metrics name prefix |
-| `metrics.rateLimitPoll.enabled` | `true` | Enable periodic polling of GitHub rate limit API |
-| `metrics.rateLimitPoll.intervalSeconds` | `60` | Rate limit polling interval in seconds |
-| `metrics.reachabilityProbe.enabled` | `true` | Enable periodic GitHub API reachability probing |
-| `metrics.reachabilityProbe.intervalSeconds` | `30` | Reachability probe interval in seconds |
-
-### ServiceMonitor (Prometheus Operator)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `serviceMonitor.enabled` | `false` | Create a ServiceMonitor resource |
-| `serviceMonitor.namespace` | `""` | Namespace for the ServiceMonitor (defaults to release namespace) |
-| `serviceMonitor.labels` | `{}` | Additional labels |
-| `serviceMonitor.annotations` | `{}` | Annotations |
-| `serviceMonitor.interval` | `30s` | Scrape interval |
-| `serviceMonitor.scrapeTimeout` | `10s` | Scrape timeout |
-| `serviceMonitor.path` | `/metrics` | Metrics path |
-| `serviceMonitor.metricRelabelings` | `[]` | Metric relabeling configs |
-| `serviceMonitor.relabelings` | `[]` | Relabeling configs |
-| `serviceMonitor.honorLabels` | `false` | Honor labels from the target |
-
-### PodMonitor (Prometheus Operator)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `podMonitor.enabled` | `false` | Create a PodMonitor resource (alternative to ServiceMonitor) |
-| `podMonitor.namespace` | `""` | Namespace for the PodMonitor (defaults to release namespace) |
-| `podMonitor.labels` | `{}` | Additional labels |
-| `podMonitor.annotations` | `{}` | Annotations |
-| `podMonitor.interval` | `30s` | Scrape interval |
-| `podMonitor.scrapeTimeout` | `10s` | Scrape timeout |
-| `podMonitor.path` | `/metrics` | Metrics path |
-| `podMonitor.metricRelabelings` | `[]` | Metric relabeling configs |
-| `podMonitor.relabelings` | `[]` | Relabeling configs |
-| `podMonitor.honorLabels` | `false` | Honor labels from the target |
-
-### GitHub Apps (Required)
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `github.apps` | `{}` | Map of GitHub App configurations. At least one app must be configured. |
-| `github.apps.<name>.appId` | — | GitHub App numeric ID (required) |
-| `github.apps.<name>.existingSecret` | — | Name of an existing Secret containing the private key (required) |
-| `github.apps.<name>.secretPrivateKeyKey` | `"github-app-private-key"` | Key in the secret that holds the private key PEM |
-
-### Pod Scheduling
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `podAnnotations` | `{}` | Additional pod annotations |
-| `podLabels` | `{}` | Additional pod labels |
-| `nodeSelector` | `{}` | Node selector |
-| `tolerations` | `[]` | Tolerations |
-| `affinity` | `{}` | Affinity rules |
-| `topologySpreadConstraints` | `[]` | Topology spread constraints |
-
-### Extensibility
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `extraEnv` | `[]` | Extra environment variables for the container |
-| `extraVolumeMounts` | `[]` | Extra volume mounts for the container |
-| `extraVolumes` | `[]` | Extra volumes for the pod |
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| affinity | object | `{}` | Affinity rules |
+| audit.bufferSize | int | `1024` | Channel buffer size for async audit writes |
+| audit.fileEnabled | bool | `true` | Enable audit file logging |
+| audit.filePath | string | `"/var/log/github-sts/audit.json"` | Path to audit log file inside the container |
+| autoscaling.enabled | bool | `false` | Enable Horizontal Pod Autoscaler |
+| autoscaling.maxReplicas | int | `10` | Maximum number of replicas |
+| autoscaling.minReplicas | int | `2` | Minimum number of replicas |
+| autoscaling.targetCPUUtilizationPercentage | int | `80` | Target CPU utilization percentage |
+| commonLabels | object | `{}` | Labels to add to all deployed objects |
+| extraEnv | list | `[]` | Extra environment variables |
+| extraVolumeMounts | list | `[]` | Extra volume mounts for the container |
+| extraVolumes | list | `[]` | Extra volumes for the pod |
+| fullnameOverride | string | `""` | Override the full release name |
+| github.apps | object | `{}` | GitHub Apps map. At least one app must be configured. |
+| httproute.annotations | object | `{}` | HTTPRoute annotations |
+| httproute.enabled | bool | `false` | Enable HTTPRoute |
+| httproute.hostnames | list | `[]` | Hostnames for routing |
+| httproute.parentRefs | list | `[]` | Gateway parent references |
+| httproute.port | int | `8080` | Port to route traffic to |
+| image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
+| image.registry | string | `"ghcr.io"` | Image registry |
+| image.repository | string | `"depthmark/github-sts"` | Image repository |
+| image.tag | string | `""` | Image tag (defaults to Chart.appVersion) |
+| imagePullSecrets | list | `[]` | Secrets for pulling images from private registries |
+| ingress.annotations | object | `{}` | Ingress annotations |
+| ingress.className | string | `""` | Ingress class name |
+| ingress.enabled | bool | `false` | Enable Ingress |
+| ingress.hosts | list | `[{"host":"github-sts.example.com","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress host rules |
+| ingress.tls | list | `[]` | TLS configuration |
+| jti.backend | string | `"memory"` | Backend: "memory" or "redis" |
+| jti.redisUrl | string | `""` | Required if backend=redis |
+| jti.ttl | string | `"1h"` | How long to remember consumed JTIs (Go duration string) |
+| logging.level | string | `"info"` | Application log level (debug | info | warn | error) |
+| logging.suppressHealthLogs | bool | `true` | Suppress health/ready/metrics access logs |
+| metrics.authToken | string | `""` | Bearer token for /metrics endpoint (empty = unauthenticated) |
+| metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
+| metrics.rateLimitPoll.enabled | bool | `true` | Enable periodic polling of GitHub rate limit API |
+| metrics.rateLimitPoll.interval | string | `"60s"` | Polling interval (Go duration string) |
+| metrics.reachabilityProbe.enabled | bool | `true` | Enable periodic GitHub API reachability probing |
+| metrics.reachabilityProbe.interval | string | `"30s"` | Probe interval (Go duration string) |
+| nameOverride | string | `""` | Override the chart name |
+| nodeSelector | object | `{}` | Node selector |
+| oidc.allowedIssuers | list | `["https://token.actions.githubusercontent.com"]` | Allowed OIDC token issuers |
+| podAnnotations | object | `{}` | Additional pod annotations |
+| podLabels | object | `{}` | Additional pod labels |
+| podMonitor.annotations | object | `{}` | Annotations for the PodMonitor |
+| podMonitor.enabled | bool | `false` | Whether to create a PodMonitor |
+| podMonitor.honorLabels | bool | `false` | Honor labels |
+| podMonitor.interval | string | `"30s"` | Scrape interval |
+| podMonitor.labels | object | `{}` | Additional labels for the PodMonitor |
+| podMonitor.metricRelabelings | list | `[]` | Metric relabeling configs |
+| podMonitor.namespace | string | `""` | Namespace where the PodMonitor should be created (defaults to release namespace) |
+| podMonitor.path | string | `"/metrics"` | Path to scrape metrics from |
+| podMonitor.relabelings | list | `[]` | Relabeling configs |
+| podMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
+| podSecurityContext.fsGroup | int | `65534` | Filesystem group |
+| podSecurityContext.runAsNonRoot | bool | `true` | Require non-root user |
+| podSecurityContext.runAsUser | int | `65534` | UID to run as |
+| policy.basePath | string | `".github/sts"` | Base path in repos for trust policies |
+| policy.cacheTtl | string | `"60s"` | Cache TTL (Go duration string, e.g. "60s", "5m") |
+| probes.liveness.enabled | bool | `true` | Enable liveness probe |
+| probes.liveness.failureThreshold | int | `3` | Failure threshold for liveness probe |
+| probes.liveness.initialDelaySeconds | int | `10` | Initial delay before liveness probe starts |
+| probes.liveness.periodSeconds | int | `30` | Period between liveness probes |
+| probes.liveness.timeoutSeconds | int | `3` | Timeout for liveness probe |
+| probes.readiness.enabled | bool | `true` | Enable readiness probe |
+| probes.readiness.failureThreshold | int | `3` | Failure threshold for readiness probe |
+| probes.readiness.initialDelaySeconds | int | `5` | Initial delay before readiness probe starts |
+| probes.readiness.periodSeconds | int | `10` | Period between readiness probes |
+| probes.readiness.timeoutSeconds | int | `3` | Timeout for readiness probe |
+| rateLimit.burst | int | `20` | Maximum burst size per IP |
+| rateLimit.enabled | bool | `false` | Enable per-IP rate limiting |
+| rateLimit.exemptCidrs | list | `[]` | CIDR ranges exempt from rate limiting |
+| rateLimit.rate | int | `10` | Requests per second per IP |
+| replicaCount | int | `1` | Number of replicas |
+| resources | object | `{}` | Resource requests and limits |
+| securityContext.allowPrivilegeEscalation | bool | `false` | Disallow privilege escalation |
+| securityContext.capabilities.drop | list | `["ALL"]` | Linux capabilities to drop |
+| securityContext.readOnlyRootFilesystem | bool | `true` | Read-only root filesystem |
+| server.shutdownTimeout | string | `"10s"` | Graceful shutdown timeout (Go duration string) |
+| server.trustForwardedHeaders | bool | `false` | Trust X-Forwarded-For headers for client IP (enable when behind a reverse proxy) |
+| service.annotations | object | `{}` | Service annotations |
+| service.port | int | `8080` | Service port |
+| service.targetPort | int | `8080` | Container target port |
+| service.type | string | `"ClusterIP"` | Service type |
+| serviceAccount.annotations | object | `{}` | Annotations to add to the service account |
+| serviceAccount.automountServiceAccountToken | bool | `false` | Whether to automount the service account token |
+| serviceAccount.create | bool | `true` | Whether to create a service account |
+| serviceAccount.name | string | `""` | Name of the service account (defaults to fullname) |
+| serviceMonitor.annotations | object | `{}` | Annotations for the ServiceMonitor |
+| serviceMonitor.enabled | bool | `false` | Whether to create a ServiceMonitor |
+| serviceMonitor.honorLabels | bool | `false` | Honor labels |
+| serviceMonitor.interval | string | `"30s"` | Scrape interval |
+| serviceMonitor.labels | object | `{}` | Additional labels for the ServiceMonitor |
+| serviceMonitor.metricRelabelings | list | `[]` | Metric relabeling configs |
+| serviceMonitor.namespace | string | `""` | Namespace where the ServiceMonitor should be created (defaults to release namespace) |
+| serviceMonitor.path | string | `"/metrics"` | Path to scrape metrics from |
+| serviceMonitor.relabelings | list | `[]` | Relabeling configs |
+| serviceMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
+| tolerations | list | `[]` | Tolerations |
+| topologySpreadConstraints | list | `[]` | Topology spread constraints |
 
 ## Ingress & Routing
 
@@ -407,7 +310,7 @@ helm uninstall github-sts
 ## Security
 
 The chart enforces security best practices:
-- Runs as non-root user (UID 1000)
+- Runs as non-root user (UID 65534)
 - Read-only root filesystem
 - No privilege escalation
 - Dropped Linux capabilities

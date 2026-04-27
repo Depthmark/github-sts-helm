@@ -1,0 +1,211 @@
+{{ template "chart.header" . }}
+
+{{ template "chart.badgesSection" . }}
+
+A Kubernetes Helm chart for deploying [github-sts](https://github.com/Depthmark/github-sts) — a Python-based Security Token Service (STS) for the GitHub API.
+
+Workloads with OIDC tokens (GitHub Actions, Azure, Google Cloud, etc.) exchange them for short-lived, scoped GitHub installation tokens. No PATs required. Supports multiple GitHub Apps with YAML-based configuration (ideal for Kubernetes ConfigMaps).
+
+{{ template "chart.homepageLine" . }}
+
+{{ template "chart.sourcesSection" . }}
+
+## Prerequisites
+
+- Kubernetes 1.19+
+- Helm 3.0+
+- At least one [GitHub App](https://docs.github.com/en/apps) registered with the required permissions
+- A Kubernetes Secret containing the GitHub App private key
+
+## Installation
+
+### From OCI Registry (recommended)
+
+```bash
+# Create a secret with your GitHub App private key
+kubectl create secret generic my-github-app-credentials \
+  --from-file=github-app-private-key=/path/to/private_key.pem
+
+# Install the chart
+helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --set github.apps.default.appId="YOUR_GITHUB_APP_ID" \
+  --set github.apps.default.existingSecret="my-github-app-credentials"
+```
+
+### From Source
+
+```bash
+git clone https://github.com/Depthmark/github-sts-helm.git
+cd github-sts-helm
+
+kubectl create secret generic my-github-app-credentials \
+  --from-file=github-app-private-key=/path/to/private_key.pem
+
+helm install github-sts charts/github-sts \
+  --set github.apps.default.appId="YOUR_GITHUB_APP_ID" \
+  --set github.apps.default.existingSecret="my-github-app-credentials"
+```
+
+### Multiple GitHub Apps
+
+```bash
+kubectl create secret generic app1-credentials \
+  --from-file=github-app-private-key=/path/to/app1_key.pem
+kubectl create secret generic app2-credentials \
+  --from-file=github-app-private-key=/path/to/app2_key.pem
+
+helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --set github.apps.app1.appId="111" \
+  --set github.apps.app1.existingSecret="app1-credentials" \
+  --set github.apps.app2.appId="222" \
+  --set github.apps.app2.existingSecret="app2-credentials"
+```
+
+> **Note:** Each app's private key must be stored in an existing Kubernetes Secret.
+> The app name is used in trust policy paths: `{policy.basePath}/{appName}/{identity}.sts.yaml`
+
+## How It Works
+
+```
+  Workload                  github-sts                   GitHub
+     │                          │                          │
+     │  GET /sts/exchange       │                          │
+     │  ?scope=org/repo         │                          │
+     │  &app=my-app             │                          │
+     │  &identity=ci            │                          │
+     │  Authorization: Bearer   │                          │
+     │─────────────────────────>│                          │
+     │                          │  Validate OIDC sig/exp   │
+     │                          │  Load trust policy       │
+     │                          │  Evaluate claims         │
+     │                          │  Request install token ──>
+     │                          │<─────────────────────────│
+     │<─────────────────────────│                          │
+     │  { token, permissions }  │                          │
+```
+
+## Trust Policies
+
+Policies are fetched directly from GitHub repositories at `{basePath}/{appName}/{identity}.sts.yaml`.
+
+Default path: `.github/sts/{appName}/{identity}.sts.yaml`
+
+Example policy (`.github/sts/default/ci.sts.yaml`):
+
+```yaml
+issuer: https://token.actions.githubusercontent.com
+subject: repo:org/repo:ref:refs/heads/main
+permissions:
+  contents: read
+  issues: write
+```
+
+See the [upstream documentation](https://github.com/Depthmark/github-sts#trust-policies) for full policy schema and examples.
+
+## GitHub Actions Usage
+
+```yaml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    steps:
+      - name: Get scoped GitHub token
+        id: sts
+        run: |
+          OIDC_TOKEN=$(curl -sH "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=github-sts" | jq -r '.value')
+
+          GITHUB_TOKEN=$(curl -sf \
+            -H "Authorization: Bearer $OIDC_TOKEN" \
+            "${{ "{{" }} vars.STS_URL {{ "}}" }}/sts/exchange?scope=${{ "{{" }} github.repository {{ "}}" }}&app=default&identity=ci" \
+            | jq -r '.token')
+
+          echo "::add-mask::$GITHUB_TOKEN"
+          echo "token=$GITHUB_TOKEN" >> $GITHUB_OUTPUT
+
+      - name: Use scoped token
+        env:
+          GITHUB_TOKEN: ${{ "{{" }} steps.sts.outputs.token {{ "}}" }}
+        run: gh issue list
+```
+
+{{ template "chart.valuesSection" . }}
+
+## Ingress & Routing
+
+### Ingress (Traditional)
+
+```bash
+helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --set github.apps.default.appId="YOUR_APP_ID" \
+  --set github.apps.default.existingSecret="my-github-app-credentials" \
+  --set ingress.enabled=true \
+  --set ingress.className="nginx" \
+  --set ingress.hosts[0].host="github-sts.example.com"
+```
+
+### HTTPRoute (Gateway API)
+
+Requires Gateway API CRDs. HTTPRoute is more powerful and flexible than Ingress.
+
+```bash
+helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --set github.apps.default.appId="YOUR_APP_ID" \
+  --set github.apps.default.existingSecret="my-github-app-credentials" \
+  --set httproute.enabled=true \
+  --set httproute.parentRefs[0].name="my-gateway" \
+  --set httproute.hostnames[0]="github-sts.example.com"
+```
+
+## Testing
+
+After deploying the chart, you can run the built-in Helm tests:
+
+```bash
+helm test github-sts
+```
+
+The tests validate:
+- `/health` endpoint returns HTTP 200 with `{"status":"ok"}`
+- `/ready` endpoint returns HTTP 200
+- `/metrics` endpoint returns Prometheus metrics (when `metrics.enabled=true`)
+
+## Upgrade
+
+```bash
+helm upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --set github.apps.default.appId="YOUR_APP_ID" \
+  --set github.apps.default.existingSecret="my-github-app-credentials"
+```
+
+## Uninstall
+
+```bash
+helm uninstall github-sts
+```
+
+## Features
+
+- Multi-replica deployment support
+- Health checks (readiness & liveness probes)
+- Horizontal pod autoscaling
+- Ingress support (traditional Kubernetes API)
+- HTTPRoute support (Gateway API)
+- Security context (non-root user, read-only filesystem)
+- Resource limits and requests
+- Prometheus metrics with ServiceMonitor / PodMonitor
+- Support for existing secrets (no credentials in values)
+- Multiple GitHub App support
+- Helm test hooks for deployment validation
+
+## Security
+
+The chart enforces security best practices:
+- Runs as non-root user (UID 65534)
+- Read-only root filesystem
+- No privilege escalation
+- Dropped Linux capabilities
+- Health probes for auto-recovery
+- Private keys are mounted from existing Kubernetes Secrets (never stored in chart values)

@@ -12,7 +12,7 @@ commonLabels: {}
 # -- Number of replicas
 replicaCount: 1
 
-# -- Image configuration
+# Image configuration
 image:
   # -- Image registry
   registry: ghcr.io
@@ -27,7 +27,7 @@ image:
 imagePullSecrets: []
 #  - name: my-registry-secret
 
-# -- Service account configuration
+# Service account configuration
 serviceAccount:
   # -- Whether to create a service account
   create: true
@@ -38,37 +38,50 @@ serviceAccount:
   # -- Whether to automount the service account token
   automountServiceAccountToken: false
 
-# -- Service configuration
+# Service configuration
 service:
+  # -- Service type
   type: ClusterIP
+  # -- Service port
   port: 8080
+  # -- Container target port
   targetPort: 8080
+  # -- Service annotations
   annotations: {}
 
-# -- Ingress configuration (Kubernetes Ingress API)
+# Ingress configuration (Kubernetes Ingress API)
 ingress:
+  # -- Enable Ingress
   enabled: false
+  # -- Ingress class name
   className: ""
+  # -- Ingress annotations
   annotations: {}
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  # -- Ingress host rules
   hosts:
     - host: github-sts.example.com
       paths:
         - path: /
           pathType: Prefix
+  # -- TLS configuration
   tls: []
     # - secretName: github-sts-tls
     #   hosts:
     #     - github-sts.example.com
 
-# -- HTTPRoute configuration (Gateway API)
+# HTTPRoute configuration (Gateway API)
 httproute:
+  # -- Enable HTTPRoute
   enabled: false
+  # -- HTTPRoute annotations
   annotations: {}
+  # -- Gateway parent references
   parentRefs: []
     # - name: my-gateway
     #   namespace: gateway-system
     #   sectionName: https
+  # -- Hostnames for routing
   hostnames: []
     # - github-sts.example.com
   # -- Port to route traffic to
@@ -83,72 +96,96 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
-# -- Autoscaling configuration
+# Autoscaling configuration
 autoscaling:
+  # -- Enable Horizontal Pod Autoscaler
   enabled: false
+  # -- Minimum number of replicas
   minReplicas: 2
+  # -- Maximum number of replicas
   maxReplicas: 10
+  # -- Target CPU utilization percentage
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
 
-# -- Probe configuration
+# Probe configuration
 probes:
+  # Liveness probe configuration
   liveness:
+    # -- Enable liveness probe
     enabled: true
+    # -- Initial delay before liveness probe starts
     initialDelaySeconds: 10
+    # -- Period between liveness probes
     periodSeconds: 30
+    # -- Timeout for liveness probe
     timeoutSeconds: 3
+    # -- Failure threshold for liveness probe
     failureThreshold: 3
+  # Readiness probe configuration
   readiness:
+    # -- Enable readiness probe
     enabled: true
+    # -- Initial delay before readiness probe starts
     initialDelaySeconds: 5
+    # -- Period between readiness probes
     periodSeconds: 10
+    # -- Timeout for readiness probe
     timeoutSeconds: 3
+    # -- Failure threshold for readiness probe
     failureThreshold: 3
 
-# -- Pod security context (distroless nonroot image uses uid 65534)
+# Pod security context (distroless nonroot image uses uid 65534)
 podSecurityContext:
+  # -- Require non-root user
   runAsNonRoot: true
+  # -- UID to run as
   runAsUser: 65534
+  # -- Filesystem group
   fsGroup: 65534
 
-# -- Container security context
+# Container security context
 securityContext:
+  # -- Disallow privilege escalation
   allowPrivilegeEscalation: false
+  # -- Read-only root filesystem
   readOnlyRootFilesystem: true
+  # Linux capabilities configuration
   capabilities:
+    # -- Linux capabilities to drop
     drop:
       - ALL
 
-# -- Server configuration
+# Server configuration
 server:
   # -- Graceful shutdown timeout (Go duration string)
   shutdownTimeout: "10s"
   # -- Trust X-Forwarded-For headers for client IP (enable when behind a reverse proxy)
   trustForwardedHeaders: false
 
-# -- Logging configuration
+# Logging configuration
 logging:
   # -- Application log level (debug | info | warn | error)
   level: "info"
   # -- Suppress health/ready/metrics access logs
   suppressHealthLogs: true
 
-# -- Policy configuration
+# Policy configuration
 policy:
   # -- Base path in repos for trust policies
   basePath: ".github/sts"
   # -- Cache TTL (Go duration string, e.g. "60s", "5m")
   cacheTtl: "60s"
 
-# -- OIDC configuration
+# OIDC configuration
 oidc:
+  # -- Allowed OIDC token issuers
   allowedIssuers:
     - "https://token.actions.githubusercontent.com"
     # - "https://accounts.google.com"
     # - "https://sts.windows.net/{tenant}/"
 
-# -- JTI replay prevention
+# JTI replay prevention
 jti:
   # -- Backend: "memory" or "redis"
   backend: "memory"
@@ -157,7 +194,7 @@ jti:
   # -- How long to remember consumed JTIs (Go duration string)
   ttl: "1h"
 
-# -- Audit logging
+# Audit logging
 audit:
   # -- Enable audit file logging
   fileEnabled: true
@@ -166,25 +203,26 @@ audit:
   # -- Channel buffer size for async audit writes
   bufferSize: 1024
 
-# -- Metrics configuration
+# Metrics configuration
 metrics:
+  # -- Enable Prometheus metrics endpoint
   enabled: true
   # -- Bearer token for /metrics endpoint (empty = unauthenticated)
   authToken: ""
-  # -- Rate limit polling configuration
+  # Rate limit polling configuration
   rateLimitPoll:
     # -- Enable periodic polling of GitHub rate limit API
     enabled: true
     # -- Polling interval (Go duration string)
     interval: "60s"
-  # -- Reachability probe configuration
+  # Reachability probe configuration
   reachabilityProbe:
     # -- Enable periodic GitHub API reachability probing
     enabled: true
     # -- Probe interval (Go duration string)
     interval: "30s"
 
-# -- ServiceMonitor for Prometheus Operator
+# ServiceMonitor for Prometheus Operator
 serviceMonitor:
   # -- Whether to create a ServiceMonitor
   enabled: false
@@ -207,7 +245,7 @@ serviceMonitor:
   # -- Honor labels
   honorLabels: false
 
-# -- PodMonitor for Prometheus Operator (alternative to ServiceMonitor)
+# PodMonitor for Prometheus Operator (alternative to ServiceMonitor)
 podMonitor:
   # -- Whether to create a PodMonitor
   enabled: false
@@ -230,7 +268,7 @@ podMonitor:
   # -- Honor labels
   honorLabels: false
 
-# -- Per-IP rate limiting on the /sts/exchange endpoint
+# Per-IP rate limiting on the /sts/exchange endpoint
 rateLimit:
   # -- Enable per-IP rate limiting
   enabled: false
@@ -244,29 +282,25 @@ rateLimit:
   # - "172.16.0.0/12"
   # - "192.168.0.0/16"
 
-# -- GitHub App configuration (required)
+# GitHub App configuration (required)
 # Each entry under apps is a GitHub App identified by name.
 # The app name is used in policy paths: {policy.basePath}/{appName}/{identity}.sts.yaml
 # Each app's private key must be stored in an existing Kubernetes Secret.
 # For a single-app deployment, define one entry (e.g. "default").
 github:
   # -- GitHub Apps map. At least one app must be configured.
-  # apps:
+  # @default -- `{}`
+  apps: {}
+  # Example:
   #   default:
-  #     # -- GitHub App ID (required)
   #     appId: "12345"
-  #     # -- Name of an existing Secret containing the private key (required)
   #     existingSecret: "my-github-app-credentials"
-  #     # -- Key in the secret that holds the private key PEM (default: "github-app-private-key")
   #     secretPrivateKeyKey: "github-app-private-key"
-  #     # -- Repository name for org-level trust policies (e.g. ".github")
   #     # orgPolicyRepo: ".github"
-  #
   #   another-app:
   #     appId: "67890"
   #     existingSecret: "another-app-github-credentials"
   #     orgPolicyRepo: ".github"
-  apps: {}
 
 # -- Additional pod annotations
 podAnnotations: {}
