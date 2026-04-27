@@ -142,6 +142,7 @@ jobs:
 | audit.bufferSize | int | `1024` | Channel buffer size for async audit writes |
 | audit.fileEnabled | bool | `true` | Enable audit file logging |
 | audit.filePath | string | `"/var/log/github-sts/audit.json"` | Path to audit log file inside the container |
+| autoscaling.behavior | object | `{}` | HPA scaling behavior (autoscaling/v2 `behavior` block). Tune scale-up and scale-down stabilization windows / policies to add backpressure when a webhook flood would otherwise saturate the existing replicas. Empty by default; the example below is a conservative starting point. |
 | autoscaling.enabled | bool | `false` | Enable Horizontal Pod Autoscaler |
 | autoscaling.maxReplicas | int | `10` | Maximum number of replicas |
 | autoscaling.minReplicas | int | `2` | Minimum number of replicas |
@@ -193,6 +194,9 @@ jobs:
 | networkPolicy.native.from | list | `[]` | NetworkPolicyPeer entries allowed to reach the Service port. Empty list means no in-cluster ingress is permitted. |
 | nodeSelector | object | `{}` | Node selector |
 | oidc.allowedIssuers | list | `["https://token.actions.githubusercontent.com"]` | Allowed OIDC token issuers |
+| pdb.enabled | bool | `true` | Create a PodDisruptionBudget. Recommended whenever replicaCount > 1 or autoscaling is enabled, so a node drain cannot evict every replica at once. |
+| pdb.maxUnavailable | string | `nil` | Maximum number of pods that may be unavailable during a voluntary disruption. Set this OR minAvailable, not both. |
+| pdb.minAvailable | int | `1` | Minimum number of pods that must remain available during a voluntary disruption. Mutually exclusive with maxUnavailable. Defaults to 1 when neither field is set. |
 | podAnnotations | object | `{}` | Additional pod annotations |
 | podLabels | object | `{}` | Additional pod labels |
 | podMonitor.annotations | object | `{}` | Annotations for the PodMonitor |
@@ -224,7 +228,7 @@ jobs:
 | rateLimit.enabled | bool | `false` | Enable per-IP rate limiting |
 | rateLimit.exemptCidrs | list | `[]` | CIDR ranges exempt from rate limiting |
 | rateLimit.rate | int | `10` | Requests per second per IP |
-| replicaCount | int | `1` | Number of replicas |
+| replicaCount | int | `2` | Number of replicas. Defaulted to 2 so a node drain or single-pod OOM does not drop the webhook receiver entirely. Override to 1 only for dev. |
 | resources | object | `{}` | Resource requests and limits |
 | securityContext.allowPrivilegeEscalation | bool | `false` | Disallow privilege escalation |
 | securityContext.capabilities.drop | list | `["ALL"]` | Linux capabilities to drop |

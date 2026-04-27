@@ -9,8 +9,9 @@ fullnameOverride: ""
 # -- Labels to add to all deployed objects
 commonLabels: {}
 
-# -- Number of replicas
-replicaCount: 1
+# -- Number of replicas. Defaulted to 2 so a node drain or single-pod OOM does
+# not drop the webhook receiver entirely. Override to 1 only for dev.
+replicaCount: 2
 
 # Image configuration
 image:
@@ -146,6 +147,19 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
+# PodDisruptionBudget configuration
+pdb:
+  # -- Create a PodDisruptionBudget. Recommended whenever replicaCount > 1 or
+  # autoscaling is enabled, so a node drain cannot evict every replica at once.
+  enabled: true
+  # -- Minimum number of pods that must remain available during a voluntary
+  # disruption. Mutually exclusive with maxUnavailable. Defaults to 1 when
+  # neither field is set.
+  minAvailable: 1
+  # -- Maximum number of pods that may be unavailable during a voluntary
+  # disruption. Set this OR minAvailable, not both.
+  maxUnavailable: ~
+
 # Autoscaling configuration
 autoscaling:
   # -- Enable Horizontal Pod Autoscaler
@@ -157,6 +171,23 @@ autoscaling:
   # -- Target CPU utilization percentage
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
+  # -- HPA scaling behavior (autoscaling/v2 `behavior` block). Tune scale-up
+  # and scale-down stabilization windows / policies to add backpressure when a
+  # webhook flood would otherwise saturate the existing replicas. Empty by
+  # default; the example below is a conservative starting point.
+  behavior: {}
+    # scaleUp:
+    #   stabilizationWindowSeconds: 0
+    #   policies:
+    #     - type: Percent
+    #       value: 100
+    #       periodSeconds: 15
+    # scaleDown:
+    #   stabilizationWindowSeconds: 300
+    #   policies:
+    #     - type: Percent
+    #       value: 50
+    #       periodSeconds: 60
 
 # Probe configuration
 probes:

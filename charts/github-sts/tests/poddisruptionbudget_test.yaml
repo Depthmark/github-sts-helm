@@ -1,0 +1,111 @@
+suite: PodDisruptionBudget
+templates:
+  - poddisruptionbudget.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # Creation
+  # -------------------------------------------------------------------------
+  - it: should create a PDB by default
+    asserts:
+      - isKind:
+          of: PodDisruptionBudget
+      - isAPIVersion:
+          of: policy/v1
+      - hasDocuments:
+          count: 1
+
+  - it: should not create a PDB when disabled
+    set:
+      pdb.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  # -------------------------------------------------------------------------
+  # Naming and labels
+  # -------------------------------------------------------------------------
+  - it: should use the fullname
+    asserts:
+      - equal:
+          path: metadata.name
+          value: test-github-sts
+
+  - it: should include standard labels
+    asserts:
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+            app.kubernetes.io/managed-by: Helm
+
+  - it: should match the deployment selector labels
+    asserts:
+      - isSubset:
+          path: spec.selector.matchLabels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  # -------------------------------------------------------------------------
+  # Disruption budget fields
+  # -------------------------------------------------------------------------
+  - it: should default to minAvailable=1
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 1
+      - notExists:
+          path: spec.maxUnavailable
+
+  - it: should honor a custom minAvailable
+    set:
+      pdb.minAvailable: 2
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 2
+
+  - it: should honor a percentage minAvailable
+    set:
+      pdb.minAvailable: "50%"
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: "50%"
+
+  - it: should use maxUnavailable when minAvailable is unset
+    set:
+      pdb.minAvailable: ~
+      pdb.maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.maxUnavailable
+          value: 1
+      - notExists:
+          path: spec.minAvailable
+
+  - it: should prefer minAvailable when both are set
+    set:
+      pdb.minAvailable: 2
+      pdb.maxUnavailable: 1
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 2
+      - notExists:
+          path: spec.maxUnavailable
+
+  - it: should fall back to minAvailable=1 when both are null
+    set:
+      pdb.minAvailable: ~
+      pdb.maxUnavailable: ~
+    asserts:
+      - equal:
+          path: spec.minAvailable
+          value: 1
+      - notExists:
+          path: spec.maxUnavailable
