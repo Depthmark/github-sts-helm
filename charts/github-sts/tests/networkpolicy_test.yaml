@@ -1,0 +1,170 @@
+suite: NetworkPolicy
+templates:
+  - networkpolicy.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # Creation
+  # -------------------------------------------------------------------------
+  - it: should not create a NetworkPolicy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create a NetworkPolicy when enabled
+    set:
+      networkPolicy.native.enabled: true
+    asserts:
+      - isKind:
+          of: NetworkPolicy
+      - isAPIVersion:
+          of: networking.k8s.io/v1
+      - hasDocuments:
+          count: 1
+
+  # -------------------------------------------------------------------------
+  # Selector / labels
+  # -------------------------------------------------------------------------
+  - it: should select the workload pods
+    set:
+      networkPolicy.native.enabled: true
+    asserts:
+      - isSubset:
+          path: spec.podSelector.matchLabels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  - it: should declare both Ingress and Egress policy types
+    set:
+      networkPolicy.native.enabled: true
+    asserts:
+      - contains:
+          path: spec.policyTypes
+          content: Ingress
+      - contains:
+          path: spec.policyTypes
+          content: Egress
+
+  # -------------------------------------------------------------------------
+  # Ingress
+  # -------------------------------------------------------------------------
+  - it: should omit ingress block when from and extraIngress are empty
+    set:
+      networkPolicy.native.enabled: true
+    asserts:
+      - notExists:
+          path: spec.ingress
+
+  - it: should render ingress rule from networkPolicy.native.from
+    set:
+      networkPolicy.native.enabled: true
+      networkPolicy.native.from:
+        - podSelector:
+            matchLabels:
+              app: caller
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels.app
+          value: caller
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: http
+      - equal:
+          path: spec.ingress[0].ports[0].protocol
+          value: TCP
+
+  - it: should append extraIngress rules verbatim
+    set:
+      networkPolicy.native.enabled: true
+      networkPolicy.native.extraIngress:
+        - from:
+            - ipBlock:
+                cidr: 10.0.0.0/8
+          ports:
+            - port: 8080
+              protocol: TCP
+    asserts:
+      - equal:
+          path: spec.ingress[0].from[0].ipBlock.cidr
+          value: 10.0.0.0/8
+
+  # -------------------------------------------------------------------------
+  # Egress — DNS
+  # -------------------------------------------------------------------------
+  - it: should allow egress to kube-dns by default
+    set:
+      networkPolicy.native.enabled: true
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: kube-system
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels["k8s-app"]
+          value: kube-dns
+      - contains:
+          path: spec.egress[0].ports
+          content:
+            port: 53
+            protocol: UDP
+      - contains:
+          path: spec.egress[0].ports
+          content:
+            port: 53
+            protocol: TCP
+
+  - it: should not include DNS egress when allowKubeDns is false
+    set:
+      networkPolicy.native.enabled: true
+      networkPolicy.allowKubeDns: false
+    asserts:
+      - notExists:
+          path: spec.egress
+
+  # -------------------------------------------------------------------------
+  # Egress — CIDRs
+  # -------------------------------------------------------------------------
+  - it: should render an ipBlock egress rule for each cidr
+    set:
+      networkPolicy.native.enabled: true
+      networkPolicy.allowKubeDns: false
+      networkPolicy.native.cidrs:
+        - 140.82.112.0/20
+        - 192.30.252.0/22
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].ipBlock.cidr
+          value: 140.82.112.0/20
+      - equal:
+          path: spec.egress[0].to[1].ipBlock.cidr
+          value: 192.30.252.0/22
+      - contains:
+          path: spec.egress[0].ports
+          content:
+            port: 443
+            protocol: TCP
+
+  # -------------------------------------------------------------------------
+  # Egress — extraEgress passthrough
+  # -------------------------------------------------------------------------
+  - it: should append extraEgress rules verbatim
+    set:
+      networkPolicy.native.enabled: true
+      networkPolicy.allowKubeDns: false
+      networkPolicy.native.extraEgress:
+        - to:
+            - podSelector:
+                matchLabels:
+                  app: redis
+          ports:
+            - port: 6379
+              protocol: TCP
+    asserts:
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels.app
+          value: redis
+      - equal:
+          path: spec.egress[0].ports[0].port
+          value: 6379

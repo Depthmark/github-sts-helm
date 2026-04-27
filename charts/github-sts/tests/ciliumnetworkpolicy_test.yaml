@@ -1,0 +1,205 @@
+suite: CiliumNetworkPolicy
+templates:
+  - ciliumnetworkpolicy.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # Creation
+  # -------------------------------------------------------------------------
+  - it: should not create a CiliumNetworkPolicy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should create a CiliumNetworkPolicy when enabled
+    set:
+      networkPolicy.cilium.enabled: true
+    asserts:
+      - isKind:
+          of: CiliumNetworkPolicy
+      - isAPIVersion:
+          of: cilium.io/v2
+      - hasDocuments:
+          count: 1
+
+  # -------------------------------------------------------------------------
+  # Selector
+  # -------------------------------------------------------------------------
+  - it: should select the workload endpoints
+    set:
+      networkPolicy.cilium.enabled: true
+    asserts:
+      - isSubset:
+          path: spec.endpointSelector.matchLabels
+          content:
+            app.kubernetes.io/name: github-sts
+            app.kubernetes.io/instance: test
+
+  # -------------------------------------------------------------------------
+  # Ingress
+  # -------------------------------------------------------------------------
+  - it: should omit ingress block when fromEndpoints and extraIngress are empty
+    set:
+      networkPolicy.cilium.enabled: true
+    asserts:
+      - notExists:
+          path: spec.ingress
+
+  - it: should render ingress rule from fromEndpoints
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.cilium.fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: ingress-nginx
+    asserts:
+      - equal:
+          path: spec.ingress[0].fromEndpoints[0].matchLabels["io.kubernetes.pod.namespace"]
+          value: ingress-nginx
+      - equal:
+          path: spec.ingress[0].toPorts[0].ports[0].port
+          value: "8080"
+      - equal:
+          path: spec.ingress[0].toPorts[0].ports[0].protocol
+          value: TCP
+
+  - it: should append extraIngress rules verbatim
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.cilium.extraIngress:
+        - fromCIDR:
+            - 10.0.0.0/8
+    asserts:
+      - equal:
+          path: spec.ingress[0].fromCIDR[0]
+          value: 10.0.0.0/8
+
+  # -------------------------------------------------------------------------
+  # Egress — DNS with L7 visibility for FQDN matching
+  # -------------------------------------------------------------------------
+  - it: should allow egress to kube-dns with DNS L7 visibility by default
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.cilium.deriveJwksHostsFromIssuers: false
+    asserts:
+      - equal:
+          path: spec.egress[0].toEndpoints[0].matchLabels["io.kubernetes.pod.namespace"]
+          value: kube-system
+      - equal:
+          path: spec.egress[0].toEndpoints[0].matchLabels["k8s-app"]
+          value: kube-dns
+      - equal:
+          path: spec.egress[0].toPorts[0].ports[0].port
+          value: "53"
+      - equal:
+          path: spec.egress[0].toPorts[0].ports[0].protocol
+          value: ANY
+      - equal:
+          path: spec.egress[0].toPorts[0].rules.dns[0].matchPattern
+          value: "*"
+
+  - it: should not include DNS egress when allowKubeDns is false and no fqdns set
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.cilium.deriveJwksHostsFromIssuers: false
+      networkPolicy.allowKubeDns: false
+    asserts:
+      - notExists:
+          path: spec.egress
+
+  # -------------------------------------------------------------------------
+  # Egress — toFQDNs
+  # -------------------------------------------------------------------------
+  - it: should render explicit fqdns in toFQDNs
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.cilium.deriveJwksHostsFromIssuers: false
+      networkPolicy.allowKubeDns: false
+      networkPolicy.cilium.fqdns:
+        - matchName: api.github.com
+        - matchPattern: "*.githubusercontent.com"
+    asserts:
+      - equal:
+          path: spec.egress[0].toFQDNs[0].matchName
+          value: api.github.com
+      - equal:
+          path: spec.egress[0].toFQDNs[1].matchPattern
+          value: "*.githubusercontent.com"
+      - equal:
+          path: spec.egress[0].toPorts[0].ports[0].port
+          value: "443"
+      - equal:
+          path: spec.egress[0].toPorts[0].ports[0].protocol
+          value: TCP
+
+  - it: should derive JWKS hosts from oidc.allowedIssuers by default
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.allowKubeDns: false
+      oidc.allowedIssuers:
+        - https://token.actions.githubusercontent.com
+        - https://accounts.google.com
+    asserts:
+      - contains:
+          path: spec.egress[0].toFQDNs
+          content:
+            matchName: token.actions.githubusercontent.com
+      - contains:
+          path: spec.egress[0].toFQDNs
+          content:
+            matchName: accounts.google.com
+
+  - it: should not derive JWKS hosts when disabled
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.allowKubeDns: false
+      networkPolicy.cilium.deriveJwksHostsFromIssuers: false
+      networkPolicy.cilium.fqdns: []
+      oidc.allowedIssuers:
+        - https://token.actions.githubusercontent.com
+    asserts:
+      - notExists:
+          path: spec.egress
+
+  - it: should merge explicit fqdns with derived JWKS hosts
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.allowKubeDns: false
+      networkPolicy.cilium.fqdns:
+        - matchName: api.github.com
+      oidc.allowedIssuers:
+        - https://token.actions.githubusercontent.com
+    asserts:
+      - contains:
+          path: spec.egress[0].toFQDNs
+          content:
+            matchName: api.github.com
+      - contains:
+          path: spec.egress[0].toFQDNs
+          content:
+            matchName: token.actions.githubusercontent.com
+
+  # -------------------------------------------------------------------------
+  # Egress — extraEgress passthrough
+  # -------------------------------------------------------------------------
+  - it: should append extraEgress rules verbatim
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.allowKubeDns: false
+      networkPolicy.cilium.deriveJwksHostsFromIssuers: false
+      networkPolicy.cilium.extraEgress:
+        - toEndpoints:
+            - matchLabels:
+                app: redis
+          toPorts:
+            - ports:
+                - port: "6379"
+                  protocol: TCP
+    asserts:
+      - equal:
+          path: spec.egress[0].toEndpoints[0].matchLabels.app
+          value: redis
+      - equal:
+          path: spec.egress[0].toPorts[0].ports[0].port
+          value: "6379"

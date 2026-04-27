@@ -179,6 +179,18 @@ jobs:
 | metrics.reachabilityProbe.enabled | bool | `true` | Enable periodic GitHub API reachability probing |
 | metrics.reachabilityProbe.interval | string | `"30s"` | Probe interval (Go duration string) |
 | nameOverride | string | `""` | Override the chart name |
+| networkPolicy.allowKubeDns | bool | `true` | Allow egress to kube-dns (UDP/TCP 53). Applies to whichever policy kinds are enabled. Required for any FQDN/external lookup to resolve. |
+| networkPolicy.cilium.deriveJwksHostsFromIssuers | bool | `true` | Append the host of each `oidc.allowedIssuers` URL to the FQDN allow-list as a `matchName` entry. Disable to manage the list manually. |
+| networkPolicy.cilium.enabled | bool | `false` | Render a CiliumNetworkPolicy. |
+| networkPolicy.cilium.extraEgress | list | `[]` | Free-form egress rules merged into the policy. |
+| networkPolicy.cilium.extraIngress | list | `[]` | Free-form ingress rules merged into the policy. |
+| networkPolicy.cilium.fqdns | list | `[]` | FQDNSelector entries allowed for egress on TCP 443. Each entry is a `matchName` or `matchPattern` map. |
+| networkPolicy.cilium.fromEndpoints | list | `[]` | EndpointSelector entries allowed to reach the Service port. |
+| networkPolicy.native.cidrs | list | `[]` | External CIDR ranges allowed for egress on TCP 443 (e.g. GitHub API, JWKS issuer hosts). Operators must populate this for their environment. |
+| networkPolicy.native.enabled | bool | `false` | Render a native NetworkPolicy. Sets policyTypes: [Ingress, Egress]; rules not listed are denied. |
+| networkPolicy.native.extraEgress | list | `[]` | Free-form egress rules merged into the policy (NetworkPolicyEgressRule shape). |
+| networkPolicy.native.extraIngress | list | `[]` | Free-form ingress rules merged into the policy (NetworkPolicyIngressRule shape). |
+| networkPolicy.native.from | list | `[]` | NetworkPolicyPeer entries allowed to reach the Service port. Empty list means no in-cluster ingress is permitted. |
 | nodeSelector | object | `{}` | Node selector |
 | oidc.allowedIssuers | list | `["https://token.actions.githubusercontent.com"]` | Allowed OIDC token issuers |
 | podAnnotations | object | `{}` | Additional pod annotations |
