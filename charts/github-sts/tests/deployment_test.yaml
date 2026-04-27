@@ -58,12 +58,12 @@ tests:
           path: spec.replicas
           value: 3
 
-  - it: should default to 1 replica
+  - it: should default to 2 replicas
     template: deployment.yaml
     asserts:
       - equal:
           path: spec.replicas
-          value: 1
+          value: 2
 
   # -------------------------------------------------------------------------
   # Container image

@@ -1,0 +1,19 @@
+{{- if .Values.pdb.enabled -}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "github-sts.fullname" . }}
+  labels:
+    {{- include "github-sts.labels" . | nindent 4 }}
+spec:
+  {{- if and (hasKey .Values.pdb "minAvailable") (not (kindIs "invalid" .Values.pdb.minAvailable)) }}
+  minAvailable: {{ .Values.pdb.minAvailable }}
+  {{- else if and (hasKey .Values.pdb "maxUnavailable") (not (kindIs "invalid" .Values.pdb.maxUnavailable)) }}
+  maxUnavailable: {{ .Values.pdb.maxUnavailable }}
+  {{- else }}
+  minAvailable: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "github-sts.selectorLabels" . | nindent 6 }}
+{{- end }}
