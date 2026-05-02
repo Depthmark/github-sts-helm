@@ -166,6 +166,49 @@ tests:
             protocol: TCP
 
   # -------------------------------------------------------------------------
+  # Pod-level lifecycle / rollout
+  # -------------------------------------------------------------------------
+  - it: should set terminationGracePeriodSeconds by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 30
+
+  - it: should honor a custom terminationGracePeriodSeconds
+    template: deployment.yaml
+    set:
+      terminationGracePeriodSeconds: 60
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 60
+
+  - it: should omit terminationGracePeriodSeconds when null
+    template: deployment.yaml
+    set:
+      terminationGracePeriodSeconds: null
+    asserts:
+      - isNull:
+          path: spec.template.spec.terminationGracePeriodSeconds
+
+  - it: should set revisionHistoryLimit by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.revisionHistoryLimit
+          value: 5
+
+  - it: should honor a custom revisionHistoryLimit
+    template: deployment.yaml
+    set:
+      revisionHistoryLimit: 20
+    asserts:
+      - equal:
+          path: spec.revisionHistoryLimit
+          value: 20
+
+  # -------------------------------------------------------------------------
   # Health probes
   # -------------------------------------------------------------------------
   - it: should configure liveness probe
@@ -187,6 +230,32 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].readinessProbe.httpGet.port
           value: http
+
+  - it: should not configure startup probe by default
+    template: deployment.yaml
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].startupProbe
+
+  - it: should configure startup probe when enabled
+    template: deployment.yaml
+    set:
+      probes.startup.enabled: true
+      probes.startup.failureThreshold: 60
+      probes.startup.periodSeconds: 2
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.path
+          value: /ready
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.port
+          value: http
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.failureThreshold
+          value: 60
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.periodSeconds
+          value: 2
 
   - it: should disable liveness probe when set
     template: deployment.yaml
@@ -236,6 +305,9 @@ tests:
           value: true
       - equal:
           path: spec.template.spec.securityContext.runAsUser
+          value: 65534
+      - equal:
+          path: spec.template.spec.securityContext.runAsGroup
           value: 65534
       - equal:
           path: spec.template.spec.securityContext.fsGroup

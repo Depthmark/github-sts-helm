@@ -13,6 +13,24 @@ commonLabels: {}
 # not drop the webhook receiver entirely. Override to 1 only for dev.
 replicaCount: 2
 
+# -- Maximum number of old ReplicaSets retained for `kubectl rollout undo`.
+# Each pod-template change (image bump, ConfigMap checksum change, values
+# tweak) produces a new ReplicaSet; the old ones stay scaled to 0 as history.
+# Higher = deeper rollback window but more etcd objects and `kubectl get rs`
+# noise; lower = leaner cluster state but fewer rollback targets. Set to 0 to
+# disable rollback entirely. The Kubernetes default is 10; 5 is a balance for
+# this chart since `checksum/config` causes a roll on every config change.
+revisionHistoryLimit: 5
+
+# -- Pod terminationGracePeriodSeconds. Time the kubelet waits between SIGTERM
+# and SIGKILL during pod shutdown. Must comfortably exceed
+# `server.shutdownTimeout` (default 10s) plus probe drain time so in-flight
+# `/sts/exchange` requests can complete before the container is killed.
+# Setting this too low drops connections during rolling updates and node
+# drains; setting it very high slows down voluntary disruptions but does not
+# affect normal pod startup.
+terminationGracePeriodSeconds: 30
+
 # Image configuration
 image:
   # -- Image registry
@@ -191,6 +209,32 @@ autoscaling:
 
 # Probe configuration
 probes:
+  # Startup probe configuration. While the startup probe is running, liveness
+  # and readiness probes are suspended — this lets you grant a long startup
+  # budget without weakening steady-state liveness sensitivity. Disabled by
+  # default since the default image starts well under the liveness threshold;
+  # enable when cold start (JWKS fetch, policy cache warm, restoring a large
+  # JTI cache from Redis) can exceed `probes.liveness.initialDelaySeconds +
+  # probes.liveness.periodSeconds * probes.liveness.failureThreshold`,
+  # otherwise liveness would kill the pod before it ever becomes ready.
+  startup:
+    # -- Enable startup probe. When true, liveness/readiness are gated until
+    # this probe first succeeds.
+    enabled: false
+    # -- Seconds the kubelet waits after the container starts before the
+    # first probe. Usually 0 since `failureThreshold * periodSeconds`
+    # already provides the startup budget.
+    initialDelaySeconds: 0
+    # -- Seconds between probe attempts. Combined with `failureThreshold`
+    # it sets the maximum allowed startup time.
+    periodSeconds: 5
+    # -- Per-attempt HTTP timeout. Increase if startup work makes `/ready`
+    # respond slowly under contention.
+    timeoutSeconds: 3
+    # -- Number of consecutive failures before the kubelet gives up and
+    # restarts the container. Maximum startup time =
+    # `failureThreshold * periodSeconds` (default 30 * 5s = 150s).
+    failureThreshold: 30
   # Liveness probe configuration
   liveness:
     # -- Enable liveness probe
@@ -222,6 +266,13 @@ podSecurityContext:
   runAsNonRoot: true
   # -- UID to run as
   runAsUser: 65534
+  # -- Primary GID for the container process. Pairs with `runAsUser` so the
+  # process has no group membership inherited from the image (some images
+  # ship with `gid=0` even when `uid` is non-root, which fails Pod Security
+  # Admission `restricted` and several CIS benchmarks). Distroless `nonroot`
+  # already provides gid 65534, so this is a defense-in-depth assertion
+  # rather than a behavior change for the default image.
+  runAsGroup: 65534
   # -- Filesystem group
   fsGroup: 65534
   # -- Seccomp profile applied to all containers in the pod
