@@ -210,6 +210,7 @@ jobs:
 | podMonitor.relabelings | list | `[]` | Relabeling configs |
 | podMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
 | podSecurityContext.fsGroup | int | `65534` | Filesystem group |
+| podSecurityContext.runAsGroup | int | `65534` | Primary GID for the container process. Pairs with `runAsUser` so the process has no group membership inherited from the image (some images ship with `gid=0` even when `uid` is non-root, which fails Pod Security Admission `restricted` and several CIS benchmarks). Distroless `nonroot` already provides gid 65534, so this is a defense-in-depth assertion rather than a behavior change for the default image. |
 | podSecurityContext.runAsNonRoot | bool | `true` | Require non-root user |
 | podSecurityContext.runAsUser | int | `65534` | UID to run as |
 | podSecurityContext.seccompProfile | object | `{"type":"RuntimeDefault"}` | Seccomp profile applied to all containers in the pod |
@@ -225,12 +226,18 @@ jobs:
 | probes.readiness.initialDelaySeconds | int | `5` | Initial delay before readiness probe starts |
 | probes.readiness.periodSeconds | int | `10` | Period between readiness probes |
 | probes.readiness.timeoutSeconds | int | `3` | Timeout for readiness probe |
+| probes.startup.enabled | bool | `false` | Enable startup probe. When true, liveness/readiness are gated until this probe first succeeds. |
+| probes.startup.failureThreshold | int | `30` | Number of consecutive failures before the kubelet gives up and restarts the container. Maximum startup time = `failureThreshold * periodSeconds` (default 30 * 5s = 150s). |
+| probes.startup.initialDelaySeconds | int | `0` | Seconds the kubelet waits after the container starts before the first probe. Usually 0 since `failureThreshold * periodSeconds` already provides the startup budget. |
+| probes.startup.periodSeconds | int | `5` | Seconds between probe attempts. Combined with `failureThreshold` it sets the maximum allowed startup time. |
+| probes.startup.timeoutSeconds | int | `3` | Per-attempt HTTP timeout. Increase if startup work makes `/ready` respond slowly under contention. |
 | rateLimit.burst | int | `20` | Maximum burst size per IP |
 | rateLimit.enabled | bool | `false` | Enable per-IP rate limiting |
 | rateLimit.exemptCidrs | list | `[]` | CIDR ranges exempt from rate limiting |
 | rateLimit.rate | int | `10` | Requests per second per IP |
 | replicaCount | int | `2` | Number of replicas. Defaulted to 2 so a node drain or single-pod OOM does not drop the webhook receiver entirely. Override to 1 only for dev. |
 | resources | object | `{}` | Resource requests and limits |
+| revisionHistoryLimit | int | `5` | Maximum number of old ReplicaSets retained for `kubectl rollout undo`. Each pod-template change (image bump, ConfigMap checksum change, values tweak) produces a new ReplicaSet; the old ones stay scaled to 0 as history. Higher = deeper rollback window but more etcd objects and `kubectl get rs` noise; lower = leaner cluster state but fewer rollback targets. Set to 0 to disable rollback entirely. The Kubernetes default is 10; 5 is a balance for this chart since `checksum/config` causes a roll on every config change. |
 | securityContext.allowPrivilegeEscalation | bool | `false` | Disallow privilege escalation |
 | securityContext.capabilities.drop | list | `["ALL"]` | Linux capabilities to drop |
 | securityContext.readOnlyRootFilesystem | bool | `true` | Read-only root filesystem |
@@ -255,6 +262,7 @@ jobs:
 | serviceMonitor.path | string | `"/metrics"` | Path to scrape metrics from |
 | serviceMonitor.relabelings | list | `[]` | Relabeling configs |
 | serviceMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
+| terminationGracePeriodSeconds | int | `30` | Pod terminationGracePeriodSeconds. Time the kubelet waits between SIGTERM and SIGKILL during pod shutdown. Must comfortably exceed `server.shutdownTimeout` (default 10s) plus probe drain time so in-flight `/sts/exchange` requests can complete before the container is killed. Setting this too low drops connections during rolling updates and node drains; setting it very high slows down voluntary disruptions but does not affect normal pod startup. |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
 
