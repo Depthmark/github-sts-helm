@@ -224,6 +224,9 @@ podSecurityContext:
   runAsUser: 65534
   # -- Filesystem group
   fsGroup: 65534
+  # -- Seccomp profile applied to all containers in the pod
+  seccompProfile:
+    type: RuntimeDefault
 
 # Container security context
 securityContext:
@@ -236,6 +239,9 @@ securityContext:
     # -- Linux capabilities to drop
     drop:
       - ALL
+  # -- Seccomp profile for the container (overrides pod-level profile)
+  seccompProfile:
+    type: RuntimeDefault
 
 # Server configuration
 server:

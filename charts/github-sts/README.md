@@ -212,6 +212,7 @@ jobs:
 | podSecurityContext.fsGroup | int | `65534` | Filesystem group |
 | podSecurityContext.runAsNonRoot | bool | `true` | Require non-root user |
 | podSecurityContext.runAsUser | int | `65534` | UID to run as |
+| podSecurityContext.seccompProfile | object | `{"type":"RuntimeDefault"}` | Seccomp profile applied to all containers in the pod |
 | policy.basePath | string | `".github/sts"` | Base path in repos for trust policies |
 | policy.cacheTtl | string | `"60s"` | Cache TTL (Go duration string, e.g. "60s", "5m") |
 | probes.liveness.enabled | bool | `true` | Enable liveness probe |
@@ -233,6 +234,7 @@ jobs:
 | securityContext.allowPrivilegeEscalation | bool | `false` | Disallow privilege escalation |
 | securityContext.capabilities.drop | list | `["ALL"]` | Linux capabilities to drop |
 | securityContext.readOnlyRootFilesystem | bool | `true` | Read-only root filesystem |
+| securityContext.seccompProfile | object | `{"type":"RuntimeDefault"}` | Seccomp profile for the container (overrides pod-level profile) |
 | server.shutdownTimeout | string | `"10s"` | Graceful shutdown timeout (Go duration string) |
 | server.trustForwardedHeaders | bool | `false` | Trust X-Forwarded-For headers for client IP (enable when behind a reverse proxy) |
 | service.annotations | object | `{}` | Service annotations |
