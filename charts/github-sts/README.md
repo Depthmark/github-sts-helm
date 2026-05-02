@@ -158,10 +158,11 @@ jobs:
 | httproute.hostnames | list | `[]` | Hostnames for routing |
 | httproute.parentRefs | list | `[]` | Gateway parent references |
 | httproute.port | int | `8080` | Port to route traffic to |
-| image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
+| image.digest | string | `""` | Image digest in `sha256:<hex>` form. When set, the chart renders `repository@digest` and `tag` is ignored. Pin by digest in production so the deployed bytes are immutable and verifiable by cosign / Kyverno `verifyImages` / Sigstore policy-controller. Tag-based pulls can silently change underneath you when a tag is overwritten upstream; digest pulls cannot. Use `crane digest <image:tag>` (or `docker buildx imagetools inspect`) to resolve a tag to its digest before setting this. |
+| image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. With a tag pull, `IfNotPresent` is fine; with a digest pull, the kubelet treats the digest as immutable and skips re-pull regardless of policy. |
 | image.registry | string | `"ghcr.io"` | Image registry |
 | image.repository | string | `"depthmark/github-sts"` | Image repository |
-| image.tag | string | `""` | Image tag (defaults to Chart.appVersion) |
+| image.tag | string | `""` | Image tag (defaults to Chart.appVersion). Ignored when `digest` is set. |
 | imagePullSecrets | list | `[]` | Secrets for pulling images from private registries |
 | ingress.annotations | object | `{}` | Ingress annotations |
 | ingress.className | string | `""` | Ingress class name |
