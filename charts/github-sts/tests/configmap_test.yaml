@@ -136,6 +136,20 @@ tests:
           path: data["config.yaml"]
           pattern: "allowed_issuers: \\[\\]"
 
+  - it: should default required_audience to empty string
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'required_audience: ""'
+
+  - it: should render configured required_audience
+    set:
+      oidc.requiredAudience: "https://sts.example.com"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'required_audience: "https://sts.example.com"'
+
   # -------------------------------------------------------------------------
   # JTI section
   # -------------------------------------------------------------------------

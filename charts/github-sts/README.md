@@ -193,6 +193,7 @@ jobs:
 | networkPolicy.native.from | list | `[]` | NetworkPolicyPeer entries allowed to reach the Service port. Empty list means no in-cluster ingress is permitted. |
 | nodeSelector | object | `{}` | Node selector |
 | oidc.allowedIssuers | list | `["https://token.actions.githubusercontent.com"]` | Allowed OIDC token issuers |
+| oidc.requiredAudience | string | `""` | Server-wide required `aud` claim. When set, every token must carry this value before any policy lookup or JTI reservation runs — defense in depth on top of the per-policy `audience:` field. Leave empty to rely solely on per-policy `audience:` enforcement. Recommended in production: set this to the public URL of your STS deployment so a misconfigured or permissive policy file cannot accept tokens minted for an unrelated relying party. |
 | pdb.enabled | bool | `true` | Create a PodDisruptionBudget. Recommended whenever replicaCount > 1 or autoscaling is enabled, so a node drain cannot evict every replica at once. |
 | pdb.maxUnavailable | string | `nil` | Maximum number of pods that may be unavailable during a voluntary disruption. Set this OR minAvailable, not both. |
 | pdb.minAvailable | int | `1` | Minimum number of pods that must remain available during a voluntary disruption. Mutually exclusive with maxUnavailable. Defaults to 1 when neither field is set. |

@@ -35,6 +35,7 @@ data:
       {{- else }}
       allowed_issuers: []
       {{- end }}
+      required_audience: {{ .Values.oidc.requiredAudience | default "" | quote }}
 
     jti:
       backend: {{ .Values.jti.backend | quote }}
