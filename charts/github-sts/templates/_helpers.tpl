@@ -66,14 +66,21 @@ Create the name of the service account to use.
 
 {{/*
 Return the proper image name.
+When `image.digest` is set, pin by digest (`repo@sha256:...`) and ignore the
+tag — digest pinning is required by tools like cosign / Kyverno verifyImages
+and is what `kubectl describe` ends up resolving to anyway.
 */}}
 {{- define "github-sts.image" -}}
+{{- $repo := .Values.image.repository -}}
+{{- if .Values.image.registry -}}
+{{- $repo = printf "%s/%s" .Values.image.registry .Values.image.repository -}}
+{{- end -}}
+{{- if .Values.image.digest -}}
+{{- printf "%s@%s" $repo .Values.image.digest -}}
+{{- else -}}
 {{- $tag := .Values.image.tag | default .Chart.AppVersion -}}
-{{- if .Values.image.registry }}
-{{- printf "%s/%s:%s" .Values.image.registry .Values.image.repository $tag }}
-{{- else }}
-{{- printf "%s:%s" .Values.image.repository $tag }}
-{{- end }}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end -}}
 {{- end }}
 
 {{/*

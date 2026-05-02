@@ -126,3 +126,44 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].image
           value: "my-repo:v1"
+
+  - it: should pin by digest when image.digest is set
+    template: deployment.yaml
+    set:
+      image.tag: v1.2.3
+      image.digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/depthmark/github-sts@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
+  - it: should ignore tag when digest is set
+    template: deployment.yaml
+    set:
+      image.tag: should-be-ignored
+      image.digest: "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: "should-be-ignored"
+
+  - it: should pin by digest with empty registry
+    template: deployment.yaml
+    set:
+      image.registry: ""
+      image.repository: my-repo
+      image.digest: "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "my-repo@sha256:3333333333333333333333333333333333333333333333333333333333333333"
+
+  - it: should fall back to tag when digest is empty string
+    template: deployment.yaml
+    set:
+      image.tag: v9.9.9
+      image.digest: ""
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/depthmark/github-sts:v9.9.9"

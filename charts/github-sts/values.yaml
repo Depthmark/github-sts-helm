@@ -37,9 +37,19 @@ image:
   registry: ghcr.io
   # -- Image repository
   repository: depthmark/github-sts
-  # -- Image tag (defaults to Chart.appVersion)
+  # -- Image tag (defaults to Chart.appVersion). Ignored when `digest` is set.
   tag: ""
-  # -- Image pull policy
+  # -- Image digest in `sha256:<hex>` form. When set, the chart renders
+  # `repository@digest` and `tag` is ignored. Pin by digest in production so
+  # the deployed bytes are immutable and verifiable by cosign / Kyverno
+  # `verifyImages` / Sigstore policy-controller. Tag-based pulls can silently
+  # change underneath you when a tag is overwritten upstream; digest pulls
+  # cannot. Use `crane digest <image:tag>` (or `docker buildx imagetools
+  # inspect`) to resolve a tag to its digest before setting this.
+  digest: ""
+  # -- Image pull policy. With a tag pull, `IfNotPresent` is fine; with a
+  # digest pull, the kubelet treats the digest as immutable and skips re-pull
+  # regardless of policy.
   pullPolicy: IfNotPresent
 
 # -- Secrets for pulling images from private registries
