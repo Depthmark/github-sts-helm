@@ -332,6 +332,14 @@ oidc:
     - "https://token.actions.githubusercontent.com"
     # - "https://accounts.google.com"
     # - "https://sts.windows.net/{tenant}/"
+  # -- Server-wide required `aud` claim. When set, every token must carry
+  # this value before any policy lookup or JTI reservation runs — defense
+  # in depth on top of the per-policy `audience:` field. Leave empty to
+  # rely solely on per-policy `audience:` enforcement. Recommended in
+  # production: set this to the public URL of your STS deployment so a
+  # misconfigured or permissive policy file cannot accept tokens minted
+  # for an unrelated relying party.
+  requiredAudience: ""
 
 # JTI replay prevention
 jti:
