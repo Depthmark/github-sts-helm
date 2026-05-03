@@ -150,6 +150,28 @@ tests:
           path: data["config.yaml"]
           pattern: 'required_audience: "https://sts.example.com"'
 
+  - it: should omit trusted_jwks_hosts when unset
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "trusted_jwks_hosts:"
+
+  - it: should render trusted_jwks_hosts when configured
+    set:
+      oidc.trustedJwksHosts:
+        https://accounts.google.com:
+          - www.googleapis.com
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "trusted_jwks_hosts:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "https://accounts.google.com:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "- www.googleapis.com"
+
   # -------------------------------------------------------------------------
   # JTI section
   # -------------------------------------------------------------------------

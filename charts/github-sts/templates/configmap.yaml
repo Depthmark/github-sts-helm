@@ -36,6 +36,10 @@ data:
       allowed_issuers: []
       {{- end }}
       required_audience: {{ .Values.oidc.requiredAudience | default "" | quote }}
+      {{- with .Values.oidc.trustedJwksHosts }}
+      trusted_jwks_hosts:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 
     jti:
       backend: {{ .Values.jti.backend | quote }}

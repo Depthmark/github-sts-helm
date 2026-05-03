@@ -180,7 +180,7 @@ jobs:
 | metrics.reachabilityProbe.interval | string | `"30s"` | Probe interval (Go duration string) |
 | nameOverride | string | `""` | Override the chart name |
 | networkPolicy.allowKubeDns | bool | `true` | Allow egress to kube-dns (UDP/TCP 53). Applies to whichever policy kinds are enabled. Required for any FQDN/external lookup to resolve. |
-| networkPolicy.cilium.deriveJwksHostsFromIssuers | bool | `true` | Append the host of each `oidc.allowedIssuers` URL to the FQDN allow-list as a `matchName` entry. Disable to manage the list manually. |
+| networkPolicy.cilium.deriveJwksHostsFromIssuers | bool | `true` | Append issuer hosts and `oidc.trustedJwksHosts` values to the FQDN allow-list as `matchName` entries — issuer hosts cover the same-host JWKS case (GitHub Actions), trustedJwksHosts cover providers that publish JWKS on a different host (Google → www.googleapis.com). Disable to manage the FQDN list manually via `fqdns`. |
 | networkPolicy.cilium.enabled | bool | `false` | Render a CiliumNetworkPolicy. |
 | networkPolicy.cilium.extraEgress | list | `[]` | Free-form egress rules merged into the policy. |
 | networkPolicy.cilium.extraIngress | list | `[]` | Free-form ingress rules merged into the policy. |
@@ -194,6 +194,7 @@ jobs:
 | nodeSelector | object | `{}` | Node selector |
 | oidc.allowedIssuers | list | `["https://token.actions.githubusercontent.com"]` | Allowed OIDC token issuers |
 | oidc.requiredAudience | string | `""` | Server-wide required `aud` claim. When set, every token must carry this value before any policy lookup or JTI reservation runs — defense in depth on top of the per-policy `audience:` field. Leave empty to rely solely on per-policy `audience:` enforcement. Recommended in production: set this to the public URL of your STS deployment so a misconfigured or permissive policy file cannot accept tokens minted for an unrelated relying party. |
+| oidc.trustedJwksHosts | object | `{}` | Per-issuer JWKS host overrides. Default behavior pins the JWKS `Host` header to the issuer host (so a malicious DNS answer for the issuer cannot redirect signing-key fetches elsewhere). This map is the escape hatch for issuers that legitimately publish JWKS on a different host — Google's `accounts.google.com` issues tokens but serves JWKS from `www.googleapis.com`, for example. Keys are full issuer URLs (with scheme), values are lists of allowed hostnames.  Verify before pinning:   curl -s https://accounts.google.com/.well-known/openid-configuration \     | jq -r .jwks_uri  When `networkPolicy.cilium.enabled=true`, hosts in this map are auto-appended to the FQDN egress allow-list alongside issuer hosts. Native NetworkPolicy users must add the corresponding CIDRs to `networkPolicy.native.cidrs` manually (no FQDN matching available). |
 | pdb.enabled | bool | `true` | Create a PodDisruptionBudget. Recommended whenever replicaCount > 1 or autoscaling is enabled, so a node drain cannot evict every replica at once. |
 | pdb.maxUnavailable | string | `nil` | Maximum number of pods that may be unavailable during a voluntary disruption. Set this OR minAvailable, not both. |
 | pdb.minAvailable | int | `1` | Minimum number of pods that must remain available during a voluntary disruption. Mutually exclusive with maxUnavailable. Defaults to 1 when neither field is set. |

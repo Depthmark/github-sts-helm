@@ -8,6 +8,11 @@
       {{- $fqdns = append $fqdns (dict "matchName" $u.host) -}}
     {{- end -}}
   {{- end -}}
+  {{- range $issuer, $hosts := .Values.oidc.trustedJwksHosts -}}
+    {{- range $hosts -}}
+      {{- $fqdns = append $fqdns (dict "matchName" .) -}}
+    {{- end -}}
+  {{- end -}}
 {{- end -}}
 {{- $renderIngress := or (gt (len $cilium.fromEndpoints) 0) (gt (len $cilium.extraIngress) 0) -}}
 {{- $renderEgress := or .Values.networkPolicy.allowKubeDns (gt (len $fqdns) 0) (gt (len $cilium.extraEgress) 0) -}}
