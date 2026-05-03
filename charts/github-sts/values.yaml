@@ -155,8 +155,11 @@ networkPolicy:
     fqdns: []
       # - matchName: api.github.com
       # - matchPattern: "*.githubusercontent.com"
-    # -- Append the host of each `oidc.allowedIssuers` URL to the FQDN
-    # allow-list as a `matchName` entry. Disable to manage the list manually.
+    # -- Append issuer hosts and `oidc.trustedJwksHosts` values to the FQDN
+    # allow-list as `matchName` entries — issuer hosts cover the same-host
+    # JWKS case (GitHub Actions), trustedJwksHosts cover providers that
+    # publish JWKS on a different host (Google → www.googleapis.com).
+    # Disable to manage the FQDN list manually via `fqdns`.
     deriveJwksHostsFromIssuers: true
     # -- Free-form ingress rules merged into the policy.
     extraIngress: []
@@ -340,6 +343,25 @@ oidc:
   # misconfigured or permissive policy file cannot accept tokens minted
   # for an unrelated relying party.
   requiredAudience: ""
+  # -- Per-issuer JWKS host overrides. Default behavior pins the JWKS
+  # `Host` header to the issuer host (so a malicious DNS answer for the
+  # issuer cannot redirect signing-key fetches elsewhere). This map is the
+  # escape hatch for issuers that legitimately publish JWKS on a different
+  # host — Google's `accounts.google.com` issues tokens but serves JWKS
+  # from `www.googleapis.com`, for example. Keys are full issuer URLs
+  # (with scheme), values are lists of allowed hostnames.
+  #
+  # Verify before pinning:
+  #   curl -s https://accounts.google.com/.well-known/openid-configuration \
+  #     | jq -r .jwks_uri
+  #
+  # When `networkPolicy.cilium.enabled=true`, hosts in this map are
+  # auto-appended to the FQDN egress allow-list alongside issuer hosts.
+  # Native NetworkPolicy users must add the corresponding CIDRs to
+  # `networkPolicy.native.cidrs` manually (no FQDN matching available).
+  trustedJwksHosts: {}
+    # https://accounts.google.com:
+    #   - www.googleapis.com
 
 # JTI replay prevention
 jti:

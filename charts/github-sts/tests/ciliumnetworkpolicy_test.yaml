@@ -162,6 +162,38 @@ tests:
       - notExists:
           path: spec.egress
 
+  - it: should derive JWKS hosts from oidc.trustedJwksHosts
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.allowKubeDns: false
+      oidc.allowedIssuers:
+        - https://accounts.google.com
+      oidc.trustedJwksHosts:
+        https://accounts.google.com:
+          - www.googleapis.com
+    asserts:
+      - contains:
+          path: spec.egress[0].toFQDNs
+          content:
+            matchName: accounts.google.com
+      - contains:
+          path: spec.egress[0].toFQDNs
+          content:
+            matchName: www.googleapis.com
+
+  - it: should not derive trustedJwksHosts when deriveJwksHostsFromIssuers is disabled
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.allowKubeDns: false
+      networkPolicy.cilium.deriveJwksHostsFromIssuers: false
+      networkPolicy.cilium.fqdns: []
+      oidc.trustedJwksHosts:
+        https://accounts.google.com:
+          - www.googleapis.com
+    asserts:
+      - notExists:
+          path: spec.egress
+
   - it: should merge explicit fqdns with derived JWKS hosts
     set:
       networkPolicy.cilium.enabled: true
