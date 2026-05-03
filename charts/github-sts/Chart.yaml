@@ -3,7 +3,7 @@ name: github-sts
 description: GitHub Security Token Service (STS) - OIDC to GitHub token exchange
 type: application
 version: 0.0.2
-appVersion: 0.0.2
+appVersion: 0.0.3
 keywords:
   - github
   - oidc
