@@ -52,6 +52,11 @@ data:
       base_path: {{ .Values.policy.basePath | quote }}
       cache_ttl: {{ .Values.policy.cacheTtl | default "60s" | quote }}
 
+    {{- with .Values.bundles }}
+    bundles:
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+
     audit:
       file_enabled: {{ .Values.audit.fileEnabled }}
       file_path: {{ .Values.audit.filePath | quote }}

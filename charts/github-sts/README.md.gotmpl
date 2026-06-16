@@ -100,6 +100,29 @@ permissions:
 
 See the [upstream documentation](https://github.com/Depthmark/github-sts#trust-policies) for full policy schema and examples.
 
+## Enterprise Rego Bundles
+
+Set `bundles` to configure signed OPA/Rego bundles. Bundles are evaluated after the YAML trust policy allows and before GitHub token minting; deny wins across all configured bundles.
+
+```yaml
+bundles:
+  - name: enterprise-baseline
+    ref: oci://ghcr.io/example/github-sts-policy:2026-06-01
+    poll_interval: 5m
+    max_staleness: 10m
+    fail_mode: closed
+    registry:
+      auth:
+        mode: basic
+        username: robot$github-sts
+        password_file: /var/run/secrets/harbor/password
+    cosign:
+      certificate_identity_regexp: ^https://github.com/example/github-sts-policy/.github/workflows/release\.yaml@refs/heads/main$
+      certificate_oidc_issuer: https://token.actions.githubusercontent.com
+```
+
+Registry auth is separate from cosign verification. For `registry.auth.password_file`, local file bundle refs, or `cosign.public_key_ref`, mount files with `extraVolumes` and `extraVolumeMounts` and point `password_file`, `ref`, or `public_key_ref` at the mounted path.
+
 ## GitHub Actions Usage
 
 ```yaml
