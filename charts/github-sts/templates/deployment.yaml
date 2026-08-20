@@ -1,3 +1,4 @@
+{{- include "github-sts.validateTls" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,7 +46,7 @@ spec:
           image: {{ include "github-sts.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
-            - name: http
+            - name: {{ include "github-sts.portName" . }}
               containerPort: {{ .Values.service.targetPort }}
               protocol: TCP
           env:
@@ -56,9 +57,7 @@ spec:
             {{- end }}
           {{- if .Values.probes.startup.enabled }}
           startupProbe:
-            httpGet:
-              path: /ready
-              port: http
+            {{- include "github-sts.probeAction" (dict "ctx" $ "path" "/ready") | nindent 12 }}
             initialDelaySeconds: {{ .Values.probes.startup.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.startup.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.startup.timeoutSeconds }}
@@ -66,9 +65,7 @@ spec:
           {{- end }}
           {{- if .Values.probes.readiness.enabled }}
           readinessProbe:
-            httpGet:
-              path: /ready
-              port: http
+            {{- include "github-sts.probeAction" (dict "ctx" $ "path" "/ready") | nindent 12 }}
             initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
@@ -76,9 +73,7 @@ spec:
           {{- end }}
           {{- if .Values.probes.liveness.enabled }}
           livenessProbe:
-            httpGet:
-              path: /health
-              port: http
+            {{- include "github-sts.probeAction" (dict "ctx" $ "path" "/health") | nindent 12 }}
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
@@ -94,6 +89,11 @@ spec:
             - name: config
               mountPath: /etc/github-sts
               readOnly: true
+            {{- if .Values.tls.enabled }}
+            - name: tls
+              mountPath: {{ .Values.tls.mountPath | quote }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.audit.fileEnabled }}
             - name: audit-log
               mountPath: {{ dir .Values.audit.filePath }}
@@ -112,6 +112,28 @@ spec:
         - name: config
           configMap:
             name: {{ include "github-sts.fullname" . }}-config
+        {{- if .Values.tls.enabled }}
+        {{- /* Projected rather than two Secret volumes: the client CA may live in
+        a different Secret, and a second mount nested under the first would need
+        a mountpoint the read-only Secret volume cannot provide. */}}
+        - name: tls
+          projected:
+            sources:
+              - secret:
+                  name: {{ .Values.tls.existingSecret }}
+                  items:
+                    - key: {{ .Values.tls.certKey }}
+                      path: {{ .Values.tls.certKey }}
+                    - key: {{ .Values.tls.keyKey }}
+                      path: {{ .Values.tls.keyKey }}
+              {{- if .Values.tls.clientAuth.enabled }}
+              - secret:
+                  name: {{ include "github-sts.clientCASecret" . }}
+                  items:
+                    - key: {{ .Values.tls.clientAuth.caKey }}
+                      path: {{ .Values.tls.clientAuth.caKey }}
+              {{- end }}
+        {{- end }}
         {{- if .Values.audit.fileEnabled }}
         - name: audit-log
           emptyDir:

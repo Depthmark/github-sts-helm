@@ -209,7 +209,9 @@ jobs:
 | podMonitor.namespace | string | `""` | Namespace where the PodMonitor should be created (defaults to release namespace) |
 | podMonitor.path | string | `"/metrics"` | Path to scrape metrics from |
 | podMonitor.relabelings | list | `[]` | Relabeling configs |
+| podMonitor.scheme | string | `""` | Scrape scheme. Empty means auto: `https` when `tls.enabled`, else `http`. Set explicitly only when something outside the chart (a mesh sidecar terminating TLS, for example) changes what the scraper sees. |
 | podMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
+| podMonitor.tlsConfig | object | `{}` | `tlsConfig` for the scrape endpoint. When `tls.enabled` is true and this is empty, the chart emits `insecureSkipVerify: true`, because Prometheus connects to a Pod IP that a normal serving certificate has no SAN for. That encrypts the scrape without authenticating the target — supply `ca` / `caFile` plus `serverName` to verify it properly, and `cert` + `keySecret` as well when `tls.clientAuth.enabled` is on, or scrapes will be rejected. |
 | podSecurityContext.fsGroup | int | `65534` | Filesystem group |
 | podSecurityContext.runAsGroup | int | `65534` | Primary GID for the container process. Pairs with `runAsUser` so the process has no group membership inherited from the image (some images ship with `gid=0` even when `uid` is non-root, which fails Pod Security Admission `restricted` and several CIS benchmarks). Distroless `nonroot` already provides gid 65534, so this is a defense-in-depth assertion rather than a behavior change for the default image. |
 | podSecurityContext.runAsNonRoot | bool | `true` | Require non-root user |
@@ -222,6 +224,7 @@ jobs:
 | probes.liveness.initialDelaySeconds | int | `10` | Initial delay before liveness probe starts |
 | probes.liveness.periodSeconds | int | `30` | Period between liveness probes |
 | probes.liveness.timeoutSeconds | int | `3` | Timeout for liveness probe |
+| probes.mode | string | `"auto"` | Probe transport for the startup / readiness / liveness probes. `auto` (default) picks `httpGet` over HTTP, `httpGet` over HTTPS when `tls.enabled`, and `tcpSocket` when `tls.clientAuth.enabled` — the kubelet cannot present a client certificate, so an HTTP probe against an mTLS listener fails the handshake and would crash-loop the pod. Force a specific transport with `httpGet` or `tcpSocket`; note that `tcpSocket` only proves the listener accepts connections, not that `/ready` returns 200. |
 | probes.readiness.enabled | bool | `true` | Enable readiness probe |
 | probes.readiness.failureThreshold | int | `3` | Failure threshold for readiness probe |
 | probes.readiness.initialDelaySeconds | int | `5` | Initial delay before readiness probe starts |
@@ -246,6 +249,7 @@ jobs:
 | server.shutdownTimeout | string | `"10s"` | Graceful shutdown timeout (Go duration string) |
 | server.trustForwardedHeaders | bool | `false` | Trust X-Forwarded-For headers for client IP (enable when behind a reverse proxy) |
 | service.annotations | object | `{}` | Service annotations |
+| service.appProtocol | string | `""` | Value for the Service port's `appProtocol` field. Empty means auto: `https` when `tls.enabled`, otherwise the field is omitted. Ingress controllers and mesh implementations use it to decide how to talk to the backend; it is advisory, so a controller that keys off its own annotation (e.g. `nginx.ingress.kubernetes.io/backend-protocol: HTTPS`) still needs that annotation set as well. |
 | service.port | int | `8080` | Service port |
 | service.targetPort | int | `8080` | Container target port |
 | service.type | string | `"ClusterIP"` | Service type |
@@ -262,8 +266,23 @@ jobs:
 | serviceMonitor.namespace | string | `""` | Namespace where the ServiceMonitor should be created (defaults to release namespace) |
 | serviceMonitor.path | string | `"/metrics"` | Path to scrape metrics from |
 | serviceMonitor.relabelings | list | `[]` | Relabeling configs |
+| serviceMonitor.scheme | string | `""` | Scrape scheme. Empty means auto: `https` when `tls.enabled`, else `http`. Set explicitly only when something outside the chart (a mesh sidecar terminating TLS, for example) changes what the scraper sees. |
 | serviceMonitor.scrapeTimeout | string | `"10s"` | Scrape timeout |
+| serviceMonitor.tlsConfig | object | `{}` | `tlsConfig` for the scrape endpoint. When `tls.enabled` is true and this is empty, the chart emits `insecureSkipVerify: true`, because Prometheus connects to a Pod IP that a normal serving certificate has no SAN for. That encrypts the scrape without authenticating the target — supply `ca` / `caFile` plus `serverName` to verify it properly, and `cert` + `keySecret` as well when `tls.clientAuth.enabled` is on, or scrapes will be rejected. |
 | terminationGracePeriodSeconds | int | `30` | Pod terminationGracePeriodSeconds. Time the kubelet waits between SIGTERM and SIGKILL during pod shutdown. Must comfortably exceed `server.shutdownTimeout` (default 10s) plus probe drain time so in-flight `/sts/exchange` requests can complete before the container is killed. Setting this too low drops connections during rolling updates and node drains; setting it very high slows down voluntary disruptions but does not affect normal pod startup. |
+| tests.enabled | bool | `true` | Render the `helm test` hook pods. Automatically skipped when `tls.clientAuth.enabled` is true, since the probe pods have no client certificate to present and every request would be rejected at the handshake. |
+| tests.image | string | `"busybox:1.37"` | Image the test pods run. The test script uses `curl` when the image provides it and falls back to `wget`, so a curl image can be dropped in as is. Override the default when `tls.minVersion` is `"1.3"`: BusyBox's built-in TLS stack only speaks TLS 1.2 and the handshake would fail. |
+| tls.certKey | string | `"tls.crt"` | Key inside `existingSecret` holding the PEM certificate chain. |
+| tls.cipherSuites | list | `[]` | TLS 1.2 cipher suite allow-list, as IANA names (e.g. `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`). Empty means the Go defaults, which are already AEAD-only. Must be empty when `minVersion` is `"1.3"` — TLS 1.3 suites are not negotiable and the application rejects the combination at startup. |
+| tls.clientAuth.caKey | string | `"ca.crt"` | Key inside the CA Secret holding the PEM CA bundle. |
+| tls.clientAuth.enabled | bool | `false` | Require every client to present a certificate signed by the CA bundle in `clientAuth.caKey`. Verification is enforced for the whole listener — `/health`, `/ready` and `/metrics` included — so the chart switches the kubelet probes to `tcpSocket` (the kubelet cannot present a client certificate) and skips the `helm test` hooks. Prometheus needs client credentials in `serviceMonitor.tlsConfig` / `podMonitor.tlsConfig` to keep scraping. |
+| tls.clientAuth.existingSecret | string | `""` | Existing Secret holding the trusted client CA bundle. Defaults to `tls.existingSecret`, which is convenient when cert-manager writes `ca.crt` alongside the serving cert. Point it at a separate Secret when the client CA is a different trust root than the serving CA. |
+| tls.enabled | bool | `false` | Serve HTTPS directly from the pod. Switches the container port name to `https`, points the probes at the HTTPS scheme, and makes the chart mount `existingSecret` into the pod. Terminating at the ingress/Gateway remains the simpler model; reach for this only when the extra hop matters. |
+| tls.existingSecret | string | `""` | Existing Secret holding the server certificate and private key. Required when `tls.enabled` is true. A standard `kubernetes.io/tls` Secret works as is (cert-manager, an internal PKI, or `kubectl create secret tls`); an Opaque Secret works too as long as `certKey` / `keyKey` name its keys. The chart never generates certificates — a self-signed cert is a local-testing tool, not a deployment target. |
+| tls.keyKey | string | `"tls.key"` | Key inside `existingSecret` holding the PEM private key. |
+| tls.minVersion | string | `"1.2"` | Minimum accepted TLS version: `"1.2"` or `"1.3"`. Raise to `"1.3"` when every client supports it — it removes the whole TLS 1.2 cipher negotiation surface, at the cost of rejecting older clients outright. |
+| tls.mountPath | string | `"/etc/github-sts-tls"` | Directory the certificate material is mounted at. Deliberately *not* a subdirectory of `/etc/github-sts`: the config ConfigMap is mounted there read-only, and the container runtime cannot create a nested mountpoint inside a read-only mount (the pod would fail to start). |
+| tls.reloadInterval | string | `""` | Certificate hot-reload poll interval (Go duration string, e.g. `"1h"`). Empty or `"0"` disables it. Kubernetes updates a mounted Secret in place on renewal, so without polling a cert-manager rotation only takes effect at the next pod restart. Set this to something well under the renewal window (cert-manager renews at 2/3 of lifetime by default) for rotation without a rollout. |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
 
@@ -293,6 +312,136 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
   --set httproute.hostnames[0]="github-sts.example.com"
 ```
 
+## TLS & mTLS
+
+By default the pod serves plain HTTP and TLS is terminated in front of it, by the
+ingress controller (`ingress.tls`) or the Gateway. That stays the simplest option
+and is what most deployments should use.
+
+The `tls` block is for the cases where the hop between the proxy and the pod also
+has to be encrypted — a re-encrypting mesh or Gateway API `BackendTLSPolicy`, an
+"encryption in transit everywhere" control, no proxy in front of the Service at
+all — or where clients must authenticate with a certificate.
+
+> Requires a github-sts image that understands the `server.tls` configuration
+> section. Older images ignore it and keep serving plain HTTP, which then fails
+> the HTTPS probes the chart turns on. Check `image.tag` before enabling.
+
+### Serving HTTPS from the pod
+
+```bash
+# Certificate from a trusted issuer (cert-manager shown here)
+kubectl create secret tls github-sts-tls --cert=tls.crt --key=tls.key
+
+helm upgrade --install github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --set github.apps.default.appId="YOUR_APP_ID" \
+  --set github.apps.default.existingSecret="my-github-app-credentials" \
+  --set tls.enabled=true \
+  --set tls.existingSecret=github-sts-tls \
+  --set tls.reloadInterval=1h
+```
+
+What changes when `tls.enabled` is true:
+
+- the certificate Secret is mounted at `tls.mountPath` (`/etc/github-sts-tls` by
+  default — deliberately *not* under `/etc/github-sts`, because the config
+  ConfigMap is mounted there read-only and the runtime cannot create a nested
+  mountpoint inside a read-only mount);
+- the container and Service ports are renamed `https` and the Service gets
+  `appProtocol: https`;
+- startup / readiness / liveness probes switch to `scheme: HTTPS`;
+- ServiceMonitor / PodMonitor scrape with `scheme: https`;
+- the `helm test` hooks fetch over HTTPS without verifying the certificate.
+
+`tls.reloadInterval` makes the process poll the mounted files and pick up a
+renewed certificate in place. Without it, rotation only takes effect on the next
+pod restart — set it well below the renewal window (cert-manager renews at 2/3 of
+the certificate lifetime by default).
+
+> **Self-signed certificates are for local testing only.** Use cert-manager, an
+> internal PKI, or a managed issuer for anything else. The chart never generates
+> certificates.
+
+### Telling the proxy to speak HTTPS
+
+The chart cannot switch the proxy for you — the backend protocol is
+controller-specific:
+
+```yaml
+# ingress-nginx
+ingress:
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+```
+
+For Gateway API, add a `BackendTLSPolicy` alongside the release (the chart does
+not render one, since the API version tracks your Gateway API installation):
+
+```yaml
+apiVersion: gateway.networking.k8s.io/v1alpha3
+kind: BackendTLSPolicy
+metadata:
+  name: github-sts
+spec:
+  targetRefs:
+    - group: ""
+      kind: Service
+      name: github-sts
+      sectionName: https
+  validation:
+    caCertificateRefs:
+      - group: ""
+        kind: Secret
+        name: github-sts-tls
+    hostname: github-sts.example.com
+```
+
+### Mutual TLS
+
+```bash
+kubectl create secret generic github-sts-client-ca --from-file=ca.crt=client-ca.pem
+
+helm upgrade --install github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --set github.apps.default.appId="YOUR_APP_ID" \
+  --set github.apps.default.existingSecret="my-github-app-credentials" \
+  --set tls.enabled=true \
+  --set tls.existingSecret=github-sts-tls \
+  --set tls.clientAuth.enabled=true \
+  --set tls.clientAuth.existingSecret=github-sts-client-ca
+```
+
+Client certificates are required and verified on **every** endpoint — `/health`,
+`/ready` and `/metrics` included. The chart adjusts for the callers that cannot
+present one:
+
+| Caller | Behaviour |
+|--------|-----------|
+| kubelet probes | switched to `tcpSocket` (the kubelet cannot present a client certificate). This only proves the port accepts connections — set `probes.mode: httpGet` back only if something else terminates mTLS in front of the container. |
+| `helm test` hooks | not rendered. Set `tls.clientAuth.enabled=false` or test from a client that has a certificate. |
+| Prometheus | needs credentials in `serviceMonitor.tlsConfig` / `podMonitor.tlsConfig` (`ca`, `cert`, `keySecret`), otherwise scrapes fail the handshake. |
+
+When `tls.clientAuth.existingSecret` is left empty the CA bundle is read from
+`tls.existingSecret` — convenient when cert-manager writes `ca.crt` next to the
+serving certificate.
+
+### Scraping metrics over TLS
+
+With `tls.enabled` and no explicit `tlsConfig`, the chart emits
+`insecureSkipVerify: true` for the scrape: Prometheus connects to the Pod IP,
+which a certificate issued for the Service or ingress hostname has no SAN for.
+That encrypts the scrape but does not authenticate the target — to verify it:
+
+```yaml
+serviceMonitor:
+  enabled: true
+  tlsConfig:
+    ca:
+      secret:
+        name: github-sts-tls
+        key: ca.crt
+    serverName: github-sts.example.com
+```
+
 ## Testing
 
 After deploying the chart, you can run the built-in Helm tests:
@@ -305,6 +454,12 @@ The tests validate:
 - `/health` endpoint returns HTTP 200 with `{"status":"ok"}`
 - `/ready` endpoint returns HTTP 200
 - `/metrics` endpoint returns Prometheus metrics (when `metrics.enabled=true`)
+
+They follow `tls.enabled` automatically (HTTPS without certificate verification)
+and are skipped entirely under `tls.clientAuth.enabled`, since the hook pods have
+no client certificate to present. The hook script prefers `curl` and falls back to
+`wget`, so `tests.image` can be pointed at a curl image — required with
+`tls.minVersion: "1.3"`, which BusyBox's TLS stack cannot negotiate.
 
 ## Upgrade
 
@@ -327,6 +482,7 @@ helm uninstall github-sts
 - Horizontal pod autoscaling
 - Ingress support (traditional Kubernetes API)
 - HTTPRoute support (Gateway API)
+- Native TLS and mutual TLS termination in the pod, with certificate hot-reload
 - Security context (non-root user, read-only filesystem)
 - Resource limits and requests
 - Prometheus metrics with ServiceMonitor / PodMonitor
@@ -343,3 +499,5 @@ The chart enforces security best practices:
 - Dropped Linux capabilities
 - Health probes for auto-recovery
 - Private keys are mounted from existing Kubernetes Secrets (never stored in chart values)
+- Optional end-to-end TLS with a configurable minimum version and cipher suite allow-list
+- Optional mutual TLS, verifying client certificates against a trusted CA bundle

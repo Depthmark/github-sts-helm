@@ -1,4 +1,4 @@
-{{- if .Values.metrics.enabled }}
+{{- if and .Values.metrics.enabled (include "github-sts.renderTests" .) }}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -12,12 +12,12 @@ spec:
   restartPolicy: Never
   containers:
     - name: metrics-check
-      image: busybox:1.37
+      image: {{ .Values.tests.image | quote }}
       command:
         - /bin/sh
         - -c
         - |
-          RESPONSE=$(wget -qO- http://{{ include "github-sts.fullname" . }}:{{ .Values.service.port }}/metrics)
+          {{- include "github-sts.testFetch" (dict "ctx" $ "path" "/metrics") | nindent 10 }}
           echo "${RESPONSE}" | grep -q 'githubsts_' || exit 1
           echo "Metrics check passed"
 {{- end }}

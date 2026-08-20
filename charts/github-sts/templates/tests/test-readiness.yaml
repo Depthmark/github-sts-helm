@@ -1,3 +1,4 @@
+{{- if include "github-sts.renderTests" . }}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -11,14 +12,15 @@ spec:
   restartPolicy: Never
   containers:
     - name: readiness-check
-      image: busybox:1.37
+      image: {{ .Values.tests.image | quote }}
       command:
         - /bin/sh
         - -c
         - |
-          wget -qO- http://{{ include "github-sts.fullname" . }}:{{ .Values.service.port }}/ready
+          {{- include "github-sts.testFetch" (dict "ctx" $ "path" "/ready") | nindent 10 }}
           if [ $? -ne 0 ]; then
             echo "Readiness check failed"
             exit 1
           fi
           echo "Readiness check passed"
+{{- end }}

@@ -1,0 +1,39 @@
+# CI test values: native TLS termination in the pod (no client certificates)
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"
+
+tls:
+  enabled: true
+  existingSecret: "github-sts-tls"
+  minVersion: "1.2"
+  reloadInterval: "1h"
+  cipherSuites:
+    - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+    - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+  hosts:
+    - host: github-sts.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: github-sts-ingress-tls
+      hosts:
+        - github-sts.example.com
+
+serviceMonitor:
+  enabled: true
+  tlsConfig:
+    ca:
+      secret:
+        name: github-sts-tls
+        key: ca.crt
+    serverName: github-sts.example.com

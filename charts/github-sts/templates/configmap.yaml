@@ -1,3 +1,4 @@
+{{- include "github-sts.validateTls" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,6 +14,24 @@ data:
       suppress_health_logs: {{ .Values.logging.suppressHealthLogs }}
       shutdown_timeout: {{ .Values.server.shutdownTimeout | default "10s" | quote }}
       trust_forwarded_headers: {{ .Values.server.trustForwardedHeaders | default false }}
+      {{- if .Values.tls.enabled }}
+      tls:
+        cert_file: {{ include "github-sts.tlsPath" (dict "ctx" $ "key" .Values.tls.certKey) | quote }}
+        key_file: {{ include "github-sts.tlsPath" (dict "ctx" $ "key" .Values.tls.keyKey) | quote }}
+        {{- if .Values.tls.clientAuth.enabled }}
+        client_ca_file: {{ include "github-sts.tlsPath" (dict "ctx" $ "key" .Values.tls.clientAuth.caKey) | quote }}
+        {{- end }}
+        min_version: {{ .Values.tls.minVersion | toString | quote }}
+        {{- with .Values.tls.cipherSuites }}
+        cipher_suites:
+        {{- range . }}
+          - {{ . | quote }}
+        {{- end }}
+        {{- end }}
+        {{- with .Values.tls.reloadInterval }}
+        reload_interval: {{ . | quote }}
+        {{- end }}
+      {{- end }}
 
     {{- if .Values.github.apps }}
     apps:

@@ -25,8 +25,23 @@ spec:
       - {{ .Release.Namespace }}
   {{- end }}
   endpoints:
-    - port: http
+    - port: {{ include "github-sts.portName" . }}
       path: {{ .Values.serviceMonitor.path }}
+      {{- if .Values.serviceMonitor.scheme }}
+      scheme: {{ .Values.serviceMonitor.scheme }}
+      {{- else if .Values.tls.enabled }}
+      scheme: https
+      {{- end }}
+      {{- if .Values.serviceMonitor.tlsConfig }}
+      tlsConfig:
+        {{- toYaml .Values.serviceMonitor.tlsConfig | nindent 8 }}
+      {{- else if .Values.tls.enabled }}
+      {{- /* Prometheus scrapes the Pod IP, which a serving certificate issued
+      for the Service/ingress hostname has no SAN for. Override with
+      `serviceMonitor.tlsConfig` to verify the target properly. */}}
+      tlsConfig:
+        insecureSkipVerify: true
+      {{- end }}
       interval: {{ .Values.serviceMonitor.interval }}
       scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
       honorLabels: {{ .Values.serviceMonitor.honorLabels }}

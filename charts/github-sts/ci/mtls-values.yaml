@@ -1,0 +1,42 @@
+# CI test values: mutual TLS — client certificates required on every endpoint.
+# Probes fall back to tcpSocket and the helm test hooks are skipped.
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"
+
+tls:
+  enabled: true
+  existingSecret: "github-sts-tls"
+  minVersion: "1.3"
+  clientAuth:
+    enabled: true
+    existingSecret: "github-sts-client-ca"
+    caKey: "ca.crt"
+
+probes:
+  startup:
+    enabled: true
+
+networkPolicy:
+  native:
+    enabled: true
+    from:
+      - podSelector: {}
+
+podMonitor:
+  enabled: true
+  tlsConfig:
+    ca:
+      secret:
+        name: github-sts-client-ca
+        key: ca.crt
+    cert:
+      secret:
+        name: prometheus-client-cert
+        key: tls.crt
+    keySecret:
+      name: prometheus-client-cert
+      key: tls.key
+    insecureSkipVerify: true

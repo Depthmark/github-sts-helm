@@ -12,8 +12,13 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ .Values.service.port }}
-      targetPort: http
+      targetPort: {{ include "github-sts.portName" . }}
       protocol: TCP
-      name: http
+      name: {{ include "github-sts.portName" . }}
+      {{- if .Values.service.appProtocol }}
+      appProtocol: {{ .Values.service.appProtocol }}
+      {{- else if .Values.tls.enabled }}
+      appProtocol: https
+      {{- end }}
   selector:
     {{- include "github-sts.selectorLabels" . | nindent 4 }}
