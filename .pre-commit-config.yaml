@@ -1,0 +1,21 @@
+# Chart documentation is generated, not written by hand: helm-docs rebuilds
+# charts/*/README.md from values.yaml and README.md.gotmpl, then check-docs.js
+# verifies that the published documentation still matches the chart. Both run
+# in CI as well; this hook is what keeps a commit from needing that round trip.
+repos:
+  - repo: https://github.com/norwoodj/helm-docs
+    rev: v1.14.2
+    hooks:
+      - id: helm-docs
+        args:
+          - --chart-search-root=charts
+
+  # Runs after helm-docs, because it reads the README that helm-docs just wrote.
+  - repo: local
+    hooks:
+      - id: docs-check
+        name: Check documentation parity
+        entry: node docs/scripts/check-docs.js
+        language: system
+        pass_filenames: false
+        files: ^(charts/github-sts/(values\.yaml|README\.md|templates/)|docs/)

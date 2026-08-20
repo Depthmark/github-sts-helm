@@ -1,4 +1,4 @@
-.PHONY: lint lint-ci template unittest ci clean helm-docs helm-docs-check act act-lint act-unittest act-integration
+.PHONY: lint lint-ci template unittest ci clean helm-docs helm-docs-check docs-check hooks act act-lint act-unittest act-integration
 
 # Lint chart (strict mode)
 lint:
@@ -20,7 +20,7 @@ unittest:
 	helm unittest charts/github-sts
 
 # Run all local checks
-ci: lint lint-ci template unittest helm-docs-check
+ci: lint lint-ci template unittest helm-docs-check docs-check
 
 # Generate helm documentation
 helm-docs:
@@ -30,6 +30,15 @@ helm-docs:
 helm-docs-check:
 	helm-docs
 	@git diff --quiet -- charts/*/README.md || (echo "ERROR: README.md is out of date. Run 'make helm-docs' and commit the changes." && exit 1)
+
+# Check that docs/content matches the chart. Runs helm-docs first, because the
+# check reads the generated README as the list of public chart values.
+docs-check: helm-docs
+	node docs/scripts/check-docs.js
+
+# Install the pre-commit hooks that run helm-docs and docs-check on commit
+hooks:
+	pre-commit install
 
 # Clean generated artifacts
 clean:
