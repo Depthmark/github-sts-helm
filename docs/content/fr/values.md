@@ -184,6 +184,46 @@ Les deux familles de politiques sont désactivées par défaut. Activez celle qu
 | `oidc.requiredAudience` | `""` | Revendication `aud` exigée pour tout le serveur, vérifiée avant le chargement de politique et avant la réservation du JTI. Vide signifie que seul le champ `audience:` de chaque politique s'applique. Renseignez-y l'URL publique de ce déploiement, pour qu'un fichier de politique trop permissif ne puisse pas accepter un jeton émis pour une autre partie de confiance. |
 | `oidc.trustedJwksHosts` | `{}` | Liste d'autorisation des hôtes JWKS, par émetteur. Par défaut l'en-tête `Host` de la requête JWKS est épinglé à l'hôte de l'émetteur, pour qu'une réponse DNS forgée ne puisse pas détourner la récupération des clés de signature. Cette map est l'exception pour les émetteurs qui publient leurs clés ailleurs, comme `accounts.google.com` qui les sert depuis `www.googleapis.com`. Les clés sont des URL d'émetteur complètes, les valeurs des listes d'hôtes. |
 
+## Bundles de politiques
+
+Facultatif, et plus récent que la version du serveur épinglée par l'`appVersion` de ce chart. Un bundle ajoute une couche Rego par-dessus la politique de confiance YAML. Le serveur évalue chaque bundle applicable après que la politique de confiance a autorisé la requête et avant d'émettre un jeton d'installation GitHub : un refus émis par l'un d'eux rejette l'échange.
+
+| Valeur | Défaut | Effet |
+|---|---|---|
+| `bundles` | `[]` | Bundles Rego, transmis tels quels à la clé `bundles:` de premier niveau de la configuration du serveur, sans validation ni renommage. Les entrées utilisent donc les noms de champs snake_case du serveur, et non le camelCase du chart. Une liste vide signifie qu'aucun bundle ne s'exécute et que la politique de confiance est le seul garde-fou. |
+
+```yaml
+bundles:
+  - name: enterprise-baseline
+    apps: []
+    ref: oci://ghcr.io/example/github-sts-policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    expected_policy_revision: "42"
+    poll_interval: 5m
+    max_staleness: 10m
+    fail_mode: closed
+    cosign:
+      certificate_identity_regexp: '^https://github\.com/example/github-sts-policy/\.github/workflows/release\.yml@refs/heads/main$'
+      certificate_oidc_issuer: https://token.actions.githubusercontent.com
+```
+
+Vérifiez d'abord la version du serveur. La version `v0.0.3`, celle qu'épingle l'`appVersion` de ce chart, ne gère pas les bundles et analyse sa configuration sans rigueur : elle ignore la clé `bundles:`, démarre normalement et sert les échanges sans aucune couche Rego. Ni le chart ni le pod ne le signalent. Renseignez `image.tag` ou `image.digest` avec une image qui gère les bundles, et vérifiez la combinaison dans [Compatibilité]({{< relref "/integrations/compatibility" >}}).
+
+Une image qui gère les bundles exige en revanche une clé `bundle_enforcement` de premier niveau, valant `required` ou `optional`. Une valeur vide empêche le démarrage, que `bundles` soit renseigné ou non, et le chart ne génère pas cette clé. Fournissez-la par l'environnement :
+
+```yaml
+extraEnv:
+  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
+    value: required
+```
+
+L'authentification au registre et la vérification cosign sont deux réglages distincts. `registry.auth` détermine si le pod peut récupérer un bundle. `cosign` détermine si un bundle récupéré est digne de confiance. Renseigner le premier ne renseigne pas le second, et un bundle tiré via une connexion authentifiée reste du code de politique non vérifié tant que les champs cosign ne sont pas en place.
+
+Trois champs désignent un chemin à l'intérieur du conteneur plutôt qu'un emplacement distant : un `ref` de fichier local, `registry.auth.password_file` et `cosign.public_key_ref`. Le chart ne monte rien pour eux. Montez le fichier avec `extraVolumes` et `extraVolumeMounts`, puis pointez le champ vers le chemin de montage. La page [Installation]({{< relref "installation" >}}) en donne un exemple complet.
+
+`fail_mode` détermine ce qui se passe lorsqu'un bundle dépasse `max_staleness` sans rafraîchissement réussi. `closed` refuse l'échange. `open` évalue le bundle périmé et émet un avertissement et une métrique à chaque requête. Les autres champs appartiennent au serveur et non au chart : leur référence et leur sémantique d'évaluation sont décrites dans [Configuration]({{< relref "/reference/configuration" >}}).
+
+Modifier `bundles` modifie le ConfigMap, et le template de pod en porte la somme de contrôle : le changement redémarre donc les pods.
+
 ## Prévention du rejeu
 
 | Valeur | Défaut | Effet |
