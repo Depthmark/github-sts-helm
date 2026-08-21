@@ -63,7 +63,9 @@ Both are scoped to this chart's pods, and both are shaped the same way:
 - **Ingress:** who may reach the Service port. Leave the peer list empty and no in-cluster traffic is admitted.
 - **Egress:** DNS, plus TCP 443 to the destinations you allow.
 
-The server needs egress to two kinds of destination: the GitHub API, and the JWKS endpoint of every issuer in `oidc.allowedIssuers`. Miss either and exchanges fail with a connection error rather than a policy denial, which is much harder to read in an incident.
+The server needs egress to the GitHub API, and to the JWKS endpoint of every issuer in `oidc.allowedIssuers`. Miss either and exchanges fail with a connection error rather than a policy denial, which is much harder to read in an incident.
+
+A `bundles` entry adds a third destination: the host its `ref` points at. Nothing in the chart derives that host, so add it to `fqdns` on the Cilium side or to `cidrs` on the native side. How the server reacts to a bundle it cannot fetch is set by `fail_mode` on the entry rather than by the policy.
 
 ### Native NetworkPolicy
 

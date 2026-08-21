@@ -111,6 +111,101 @@ image:
 
 When `digest` is set the chart renders `repository@digest` and ignores `tag` entirely. Pin by digest in any cluster running admission-time image verification — cosign, Kyverno `verifyImages`, or Sigstore policy-controller — because those policies attest to a digest, not to a tag.
 
+## Load a signed policy bundle
+
+`bundles` adds a Rego layer that runs after the YAML trust policy allows a request and before an installation token is minted. Each entry is written straight into the server configuration, so the fields are the server's snake_case names rather than the chart's camelCase.
+
+Bundle support is newer than the server release this chart's `appVersion` pins. Do this in order.
+
+### 1. Run a server build that supports bundles
+
+Server `v0.0.3` ignores the `bundles:` key instead of rejecting it. The pod starts, exchanges succeed, and no Rego runs. Nothing in the chart or in the pod reports that, so move the image to a build with bundle support first, with `image.tag` or `image.digest` as above.
+
+[Compatibility]({{< relref "/integrations/compatibility" >}}) lists the verified server, chart, and Action combinations.
+
+### 2. Set the enforcement mode
+
+A server with bundle support requires a top-level `bundle_enforcement` key set to `required` or `optional`, and refuses to start without it. The chart does not render that key, so set it through the environment:
+
+```yaml
+extraEnv:
+  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
+    value: required
+```
+
+`required` is the production posture. `optional` lets the server run with no bundle installed, and it says so through a startup warning and through its health, metric, and audit output.
+
+### 3. Configure the bundle
+
+```yaml
+bundles:
+  - name: enterprise-baseline
+    apps: []
+    ref: oci://ghcr.io/example/github-sts-policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    expected_policy_revision: "42"
+    poll_interval: 5m
+    max_staleness: 10m
+    fail_mode: closed
+    cosign:
+      certificate_identity_regexp: '^https://github\.com/example/github-sts-policy/\.github/workflows/release\.yml@refs/heads/main$'
+      certificate_oidc_issuer: https://token.actions.githubusercontent.com
+```
+
+The server fetches the bundle itself, at runtime. `imagePullSecrets` covers the kubelet pulling the container image and has no effect here, and a NetworkPolicy that allows egress to the GitHub API does not allow egress to a bundle registry. [Networking]({{< relref "networking" >}}) covers the egress side.
+
+Required mode constrains what an entry may look like, including digest pinning and the signed revision it must declare. [Configuration]({{< relref "/reference/configuration" >}}) is the reference for those rules.
+
+### Mount a file a bundle entry needs
+
+The chart mounts nothing on a bundle's behalf. A local file `ref`, a `registry.auth.password_file`, and a `cosign.public_key_ref` each name a path inside the container, so the file has to arrive through `extraVolumes` and `extraVolumeMounts`.
+
+```bash
+kubectl create secret generic github-sts-bundle \
+  --namespace github-sts \
+  --from-literal=registry-password=ghs_xxxxxxxxxxxxxxxxxxxx \
+  --from-file=cosign.pub=./cosign.pub
+```
+
+```yaml
+extraVolumes:
+  - name: bundle
+    secret:
+      secretName: github-sts-bundle
+
+extraVolumeMounts:
+  - name: bundle
+    mountPath: /var/run/secrets/bundle
+    readOnly: true
+
+bundles:
+  - name: enterprise-baseline
+    apps: []
+    ref: oci://registry.internal.example.com/policy/github-sts@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    expected_policy_revision: "42"
+    fail_mode: closed
+    registry:
+      auth:
+        mode: basic
+        username: robot$github-sts
+        password_file: /var/run/secrets/bundle/registry-password
+    cosign:
+      public_key_ref: /var/run/secrets/bundle/cosign.pub
+```
+
+Registry authentication and cosign verification stay separate. The credential decides whether the pod can fetch the bundle. The cosign fields decide whether the fetched bundle is trusted.
+
+### Verify
+
+Render the ConfigMap to see what the server will read:
+
+```bash
+helm template github-sts oci://ghcr.io/depthmark/charts/github-sts \
+  --version 0.0.3 --values values.yaml \
+  --show-only templates/configmap.yaml
+```
+
+Every field you set appears in the rendered block, with the keys of each entry sorted alphabetically. The chart does not validate the entries, so a misspelled field reaches the server unchanged and fails there rather than at render time.
+
 ## Install without cluster-wide CRDs
 
 The chart's optional objects each depend on an API group that may not be installed:

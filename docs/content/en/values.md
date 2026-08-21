@@ -203,6 +203,46 @@ Both policy kinds default to off. Enable the one your CNI implements, or both.
 | `oidc.requiredAudience` | `""` | Server-wide required `aud` claim, checked before policy lookup and before JTI reservation. Empty means per-policy `audience:` enforcement only. Set it to this deployment's public URL, so one permissive policy file cannot accept a token minted for another relying party. |
 | `oidc.trustedJwksHosts` | `{}` | Per-issuer JWKS host allow-list. By default the JWKS `Host` header is pinned to the issuer host, so a forged DNS answer cannot redirect a signing-key fetch. This map is the exception for issuers that publish keys elsewhere, such as `accounts.google.com` serving from `www.googleapis.com`. Keys are full issuer URLs, values are host lists. |
 
+## Policy bundles
+
+Optional, and newer than the server release this chart's `appVersion` pins. A bundle layers Rego on top of the YAML trust policy. The server evaluates every applicable bundle after the trust policy allows a request and before it mints a GitHub installation token, and a deny from any of them rejects the exchange.
+
+| Value | Default | Effect |
+|---|---|---|
+| `bundles` | `[]` | Rego bundles, passed through to the top-level `bundles:` key of the server configuration without validation or renaming. Entries therefore use the server's snake_case field names rather than the chart's camelCase. Empty means no bundle runs and the trust policy is the only gate. |
+
+```yaml
+bundles:
+  - name: enterprise-baseline
+    apps: []
+    ref: oci://ghcr.io/example/github-sts-policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    expected_policy_revision: "42"
+    poll_interval: 5m
+    max_staleness: 10m
+    fail_mode: closed
+    cosign:
+      certificate_identity_regexp: '^https://github\.com/example/github-sts-policy/\.github/workflows/release\.yml@refs/heads/main$'
+      certificate_oidc_issuer: https://token.actions.githubusercontent.com
+```
+
+Check the server version before you rely on a bundle. Server `v0.0.3`, which this chart's `appVersion` pins, has no bundle support and parses its configuration leniently: it ignores the `bundles:` key, starts normally, and serves exchanges with no Rego layer. Nothing in the chart or in the pod reports that. Set `image.tag` or `image.digest` to a build that supports bundles, and confirm the pairing in [Compatibility]({{< relref "/integrations/compatibility" >}}).
+
+A server build that does support bundles also requires a top-level `bundle_enforcement` key, set to `required` or `optional`. An empty value fails startup whether or not `bundles` is set, and the chart renders no such key. Supply it through the environment:
+
+```yaml
+extraEnv:
+  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
+    value: required
+```
+
+Registry authentication and cosign verification are separate settings. `registry.auth` decides whether the pod can fetch a bundle. `cosign` decides whether a fetched bundle is trusted. Setting the first does not set the second, and a bundle pulled over an authenticated connection is still unverified policy code until the cosign fields are in place.
+
+Three fields name a path inside the container rather than a remote location: a local file `ref`, `registry.auth.password_file`, and `cosign.public_key_ref`. The chart mounts nothing for them. Mount the file with `extraVolumes` and `extraVolumeMounts`, then point the field at the mount path. [Installation]({{< relref "installation" >}}) has a worked example.
+
+`fail_mode` decides what happens once a bundle passes `max_staleness` without a successful refresh. `closed` refuses the exchange. `open` evaluates the stale bundle and emits a warning and a metric on every request. The remaining fields belong to the server rather than to the chart, so their reference and their evaluation semantics live in [Configuration]({{< relref "/reference/configuration" >}}).
+
+Changing `bundles` changes the ConfigMap, and the pod template carries a checksum of it, so the change rolls the pods.
+
 ## Replay prevention
 
 | Value | Default | Effect |
