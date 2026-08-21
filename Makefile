@@ -36,9 +36,9 @@ helm-docs-check:
 docs-check: helm-docs
 	node docs/scripts/check-docs.js
 
-# Install the pre-commit hooks that run helm-docs and docs-check on commit
+# Install the prek hooks that run helm-docs and docs-check on commit
 hooks:
-	pre-commit install
+	prek install
 
 # Clean generated artifacts
 clean:

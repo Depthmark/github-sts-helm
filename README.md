@@ -19,6 +19,24 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 See the [chart README](charts/github-sts/README.md) for full configuration options, values reference, Ingress/HTTPRoute setup, and more examples.
 
+## Development
+
+The hooks require Node.js and `helm-docs` on `PATH`. This Homebrew setup installs them with [`prek`](https://github.com/j178/prek), the Rust-based pre-commit hook runner. The current hook configuration targets the `helm-docs` v1.14.2 wrapper.
+
+```bash
+brew trust --formula norwoodj/tap/helm-docs
+brew install prek node norwoodj/tap/helm-docs
+make hooks
+```
+
+Run every hook against the repository to verify the setup:
+
+```bash
+prek run --all-files
+```
+
+The hooks regenerate `charts/github-sts/README.md` from the chart values and template, then check that the published documentation matches the chart. Commit the regenerated README whenever a chart change updates it.
+
 ## Links
 
 - [github-sts](https://github.com/Depthmark/github-sts) — Upstream service
