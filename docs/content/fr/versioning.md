@@ -1,7 +1,7 @@
 ---
 title: Versionnement
 description: Comment épingler le chart, comment ses versions sont produites, et où sont publiées les combinaisons de versions prises en charge.
-weight: 7
+weight: 8
 translationKey: helm-chart-versioning
 translationStatus: pending-review
 ---

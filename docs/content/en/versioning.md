@@ -1,7 +1,7 @@
 ---
 title: Versioning
 description: How to pin the chart, how chart releases are produced, and where the supported version combinations are published.
-weight: 7
+weight: 8
 translationKey: helm-chart-versioning
 ---
 

@@ -1,7 +1,7 @@
 ---
 title: Mise à niveau
 description: Déployez une nouvelle version de chart ou d'image, comprenez ce qui déclenche un redémarrage de pod, et revenez en arrière si nécessaire.
-weight: 6
+weight: 7
 translationKey: helm-chart-upgrade
 translationStatus: pending-review
 ---

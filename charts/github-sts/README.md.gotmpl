@@ -161,23 +161,12 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 ## TLS & mTLS
 
-By default the pod serves plain HTTP and TLS is terminated in front of it, by the
-ingress controller (`ingress.tls`) or the Gateway. That stays the simplest option
-and is what most deployments should use.
-
-The `tls` block is for the cases where the hop between the proxy and the pod also
-has to be encrypted — a re-encrypting mesh or Gateway API `BackendTLSPolicy`, an
-"encryption in transit everywhere" control, no proxy in front of the Service at
-all — or where clients must authenticate with a certificate.
-
-> Requires a github-sts image that understands the `server.tls` configuration
-> section. Older images ignore it and keep serving plain HTTP, which then fails
-> the HTTPS probes the chart turns on. Check `image.tag` before enabling.
-
-### Serving HTTPS from the pod
+The pod serves plain HTTP by default and TLS terminates in front of it, at the
+ingress controller (`ingress.tls`) or the Gateway. Enable the `tls` block when
+the hop between the proxy and the pod must be encrypted as well, when nothing
+fronts the Service, or when clients must present a certificate.
 
 ```bash
-# Certificate from a trusted issuer (cert-manager shown here)
 kubectl create secret tls github-sts-tls --cert=tls.crt --key=tls.key
 
 helm upgrade --install github-sts oci://ghcr.io/depthmark/charts/github-sts \
@@ -188,106 +177,22 @@ helm upgrade --install github-sts oci://ghcr.io/depthmark/charts/github-sts \
   --set tls.reloadInterval=1h
 ```
 
-What changes when `tls.enabled` is true:
+The chart then mounts the certificate at `tls.mountPath`, renames the container
+and Service port to `https`, and points the probes, the monitors, and the test
+hooks at HTTPS. It does not reconfigure the proxy in front: that still needs its
+own backend-protocol setting, such as
+`nginx.ingress.kubernetes.io/backend-protocol: HTTPS` or a Gateway API
+`BackendTLSPolicy`.
 
-- the certificate Secret is mounted at `tls.mountPath` (`/etc/github-sts-tls` by
-  default — deliberately *not* under `/etc/github-sts`, because the config
-  ConfigMap is mounted there read-only and the runtime cannot create a nested
-  mountpoint inside a read-only mount);
-- the container and Service ports are renamed `https` and the Service gets
-  `appProtocol: https`;
-- startup / readiness / liveness probes switch to `scheme: HTTPS`;
-- ServiceMonitor / PodMonitor scrape with `scheme: https`;
-- the `helm test` hooks fetch over HTTPS without verifying the certificate.
+Adding `tls.clientAuth.enabled=true` requires and verifies a client certificate
+on every endpoint, `/health`, `/ready`, and `/metrics` included. The probes fall
+back to `tcpSocket` because the kubelet cannot present one, the `helm test`
+hooks stop rendering for the same reason, and Prometheus needs client
+credentials in `serviceMonitor.tlsConfig` or `podMonitor.tlsConfig`.
 
-`tls.reloadInterval` makes the process poll the mounted files and pick up a
-renewed certificate in place. Without it, rotation only takes effect on the next
-pod restart — set it well below the renewal window (cert-manager renews at 2/3 of
-the certificate lifetime by default).
-
-> **Self-signed certificates are for local testing only.** Use cert-manager, an
-> internal PKI, or a managed issuer for anything else. The chart never generates
-> certificates.
-
-### Telling the proxy to speak HTTPS
-
-The chart cannot switch the proxy for you — the backend protocol is
-controller-specific:
-
-```yaml
-# ingress-nginx
-ingress:
-  annotations:
-    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-```
-
-For Gateway API, add a `BackendTLSPolicy` alongside the release (the chart does
-not render one, since the API version tracks your Gateway API installation):
-
-```yaml
-apiVersion: gateway.networking.k8s.io/v1alpha3
-kind: BackendTLSPolicy
-metadata:
-  name: github-sts
-spec:
-  targetRefs:
-    - group: ""
-      kind: Service
-      name: github-sts
-      sectionName: https
-  validation:
-    caCertificateRefs:
-      - group: ""
-        kind: Secret
-        name: github-sts-tls
-    hostname: github-sts.example.com
-```
-
-### Mutual TLS
-
-```bash
-kubectl create secret generic github-sts-client-ca --from-file=ca.crt=client-ca.pem
-
-helm upgrade --install github-sts oci://ghcr.io/depthmark/charts/github-sts \
-  --set github.apps.default.appId="YOUR_APP_ID" \
-  --set github.apps.default.existingSecret="my-github-app-credentials" \
-  --set tls.enabled=true \
-  --set tls.existingSecret=github-sts-tls \
-  --set tls.clientAuth.enabled=true \
-  --set tls.clientAuth.existingSecret=github-sts-client-ca
-```
-
-Client certificates are required and verified on **every** endpoint — `/health`,
-`/ready` and `/metrics` included. The chart adjusts for the callers that cannot
-present one:
-
-| Caller | Behaviour |
-|--------|-----------|
-| kubelet probes | switched to `tcpSocket` (the kubelet cannot present a client certificate). This only proves the port accepts connections — set `probes.mode: httpGet` back only if something else terminates mTLS in front of the container. |
-| `helm test` hooks | not rendered. Set `tls.clientAuth.enabled=false` or test from a client that has a certificate. |
-| Prometheus | needs credentials in `serviceMonitor.tlsConfig` / `podMonitor.tlsConfig` (`ca`, `cert`, `keySecret`), otherwise scrapes fail the handshake. |
-
-When `tls.clientAuth.existingSecret` is left empty the CA bundle is read from
-`tls.existingSecret` — convenient when cert-manager writes `ca.crt` next to the
-serving certificate.
-
-### Scraping metrics over TLS
-
-With `tls.enabled` and no explicit `tlsConfig`, the chart emits
-`insecureSkipVerify: true` for the scrape: Prometheus connects to the Pod IP,
-which a certificate issued for the Service or ingress hostname has no SAN for.
-That encrypts the scrape but does not authenticate the target — to verify it:
-
-```yaml
-serviceMonitor:
-  enabled: true
-  tlsConfig:
-    ca:
-      secret:
-        name: github-sts-tls
-        key: ca.crt
-    serverName: github-sts.example.com
-```
+Requires a server image that supports the `server.tls` configuration section.
+Full guidance, including certificate rotation, cipher suites, and verification
+steps, is in [docs/content/en/tls.md](../../docs/content/en/tls.md).
 
 ## Testing
 

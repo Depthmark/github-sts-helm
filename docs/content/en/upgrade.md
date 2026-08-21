@@ -1,7 +1,7 @@
 ---
 title: Upgrade
 description: Roll a new chart or image version, understand what triggers a pod restart, and roll back when it goes wrong.
-weight: 6
+weight: 7
 translationKey: helm-chart-upgrade
 ---
 

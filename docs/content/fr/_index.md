@@ -18,6 +18,7 @@ Le chart est publié sous forme d'artefact OCI signé sur `ghcr.io/depthmark/cha
 {{< card link="values" title="Référence des valeurs" icon="adjustments" subtitle="Chaque valeur du chart, avec sa valeur par défaut et son effet" >}}
 {{< card link="resources" title="Ressources générées" icon="cube" subtitle="Ce que produit chaque template et ce qui le conditionne" >}}
 {{< card link="networking" title="Réseau" icon="globe-alt" subtitle="Ingress, HTTPRoute et NetworkPolicy pour les deux familles de CNI" >}}
+{{< card link="tls" title="TLS et mTLS" icon="lock-closed" subtitle="Servir HTTPS depuis le pod, rotation du certificat, certificats clients" >}}
 {{< card link="upgrade" title="Mise à niveau" icon="arrow-circle-up" subtitle="Déployer une nouvelle version de chart ou d'image, et revenir en arrière" >}}
 {{< card link="versioning" title="Versionnement" icon="tag" subtitle="Épinglage du chart, processus de release et combinaisons prises en charge" >}}
 {{< /cards >}}
