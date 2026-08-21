@@ -132,6 +132,7 @@ jobs:
         run: gh issue list
 ```
 
+<!-- values:begin -->
 ## Values
 
 | Key | Type | Default | Description |
@@ -285,6 +286,7 @@ jobs:
 | tls.reloadInterval | string | `""` | Certificate hot-reload poll interval (Go duration string, e.g. `"1h"`). Empty or `"0"` disables it. Kubernetes updates a mounted Secret in place on renewal, so without polling a cert-manager rotation only takes effect at the next pod restart. Set this to something well under the renewal window (cert-manager renews at 2/3 of lifetime by default) for rotation without a rollout. |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
+<!-- values:end -->
 
 ## Ingress & Routing
 

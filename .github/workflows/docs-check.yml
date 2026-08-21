@@ -1,0 +1,59 @@
+---
+name: Docs Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - docs/**
+      - charts/github-sts/values.yaml
+      - charts/github-sts/README.md.gotmpl
+      - charts/github-sts/templates/**
+      - .github/workflows/docs-check.yml
+  push:
+    branches: [main]
+    paths:
+      - docs/**
+      - charts/github-sts/values.yaml
+      - charts/github-sts/README.md.gotmpl
+      - charts/github-sts/templates/**
+      - .github/workflows/docs-check.yml
+
+concurrency:
+  group: docs-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  docs-check:
+    name: Documentation Parity
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+
+      - name: Install helm-docs
+        env:
+          HELM_DOCS_VERSION: "1.14.2"
+        run: |
+          curl -sSL "https://github.com/norwoodj/helm-docs/releases/download/v${HELM_DOCS_VERSION}/helm-docs_${HELM_DOCS_VERSION}_Linux_x86_64.tar.gz" \
+            | tar xz -C /usr/local/bin helm-docs
+
+      # The check reads the generated README as the list of public chart
+      # values, so it has to run against a freshly generated one. The helm-docs
+      # job in CI Helm is what fails a stale committed README.
+      - name: Run helm-docs
+        run: helm-docs --chart-search-root=charts
+
+      - name: Check documentation parity
+        run: node docs/scripts/check-docs.js

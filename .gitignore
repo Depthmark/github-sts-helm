@@ -5,8 +5,8 @@
 # Chart dependencies
 **/charts/*.tgz
 
-# Local development files
-scripts/
+# Local development files (root only; docs/scripts is tracked)
+/scripts/
 
 # AIDLC
 .aidlc-rule-details
