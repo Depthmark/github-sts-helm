@@ -21,7 +21,7 @@ jobs:
       helm_release_created: ${{ steps.release.outputs['charts/github-sts--release_created'] }}
       helm_tag_name: ${{ steps.release.outputs['charts/github-sts--tag_name'] }}
     steps:
-      - uses: Depthmark/github-sts-action@main
+      - uses: Depthmark/github-sts-action@9014c80f47cad81e0a1295b112714d5c1b219d54 # v0.3.0
         id: sts
         with:
           sts-url: https://github-sts-dev.adelisle.com
