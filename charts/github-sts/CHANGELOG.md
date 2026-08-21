@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.4](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.0.3...github-sts-v0.0.4) (2026-08-21)
+
+
+### Features
+
+* add docs for github-sts GitHub Page ([#30](https://github.com/Depthmark/github-sts-helm/issues/30)) ([ba84b65](https://github.com/Depthmark/github-sts-helm/commit/ba84b65c4e6351755c7f10fd47d6a17769106205))
+* add support for rego bundle ([#26](https://github.com/Depthmark/github-sts-helm/issues/26)) ([436aa4e](https://github.com/Depthmark/github-sts-helm/commit/436aa4e7a512d4770aa31d411fc749cb4761f39b))
+* add support for tls and mtls ([#31](https://github.com/Depthmark/github-sts-helm/issues/31)) ([63294d0](https://github.com/Depthmark/github-sts-helm/commit/63294d0693c0cfae794d89a6b221a0470321f25e))
+
 ## [0.0.3](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.0.2...github-sts-v0.0.3) (2026-05-03)
 
 
