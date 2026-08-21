@@ -21,7 +21,7 @@ helm template github-sts charts/github-sts --values values.yaml
 |---|---|---|
 | `deployment.yaml` | `apps/v1` Deployment | The server. Carries a `checksum/config` pod annotation, so any change to the rendered configuration rolls the pods rather than leaving them on stale config. |
 | `configmap.yaml` | `v1` ConfigMap | The server configuration, mounted read-only at `/etc/github-sts/config.yaml` and located by the `GITHUBSTS_CONFIG_PATH` environment variable. Named `{fullname}-config`. |
-| `service.yaml` | `v1` Service | Fronts the pods on `service.port`, targeting the container's named `http` port. |
+| `service.yaml` | `v1` Service | Fronts the pods on `service.port`, targeting the container's named port. That name is `http`, or `https` with `appProtocol: https` when `tls.enabled` is on. |
 | `secret.yaml` | none | Renders nothing. The file is a placeholder recording that the chart deliberately does not create a Secret: every GitHub App private key comes from an `existingSecret` you own. |
 
 ## Conditionally rendered
@@ -35,12 +35,12 @@ helm template github-sts charts/github-sts --values values.yaml
 | `httproute.yaml` | `gateway.networking.k8s.io/v1` HTTPRoute | `httproute.enabled` is true. Requires the Gateway API CRDs. |
 | `networkpolicy.yaml` | `networking.k8s.io/v1` NetworkPolicy | `networkPolicy.native.enabled` is true. |
 | `ciliumnetworkpolicy.yaml` | `cilium.io/v2` CiliumNetworkPolicy | `networkPolicy.cilium.enabled` is true. Requires the Cilium CRD. |
-| `servicemonitor.yaml` | `monitoring.coreos.com/v1` ServiceMonitor | `serviceMonitor.enabled` is true. Requires the Prometheus Operator CRDs. |
-| `podmonitor.yaml` | `monitoring.coreos.com/v1` PodMonitor | `podMonitor.enabled` is true. Requires the Prometheus Operator CRDs. |
+| `servicemonitor.yaml` | `monitoring.coreos.com/v1` ServiceMonitor | `serviceMonitor.enabled` is true. Requires the Prometheus Operator CRDs. Scrapes with `scheme: https` when `tls.enabled` is on. |
+| `podmonitor.yaml` | `monitoring.coreos.com/v1` PodMonitor | `podMonitor.enabled` is true. Requires the Prometheus Operator CRDs. Scrapes with `scheme: https` when `tls.enabled` is on. |
 
 ## Test hooks
 
-These are `helm.sh/hook: test` Pods. They are created by `helm test`, not by `helm install`, and are deleted on success and before the next run.
+These are `helm.sh/hook: test` Pods. They are created by `helm test`, not by `helm install`, and are deleted on success and before the next run. All three run `tests.image` and follow `tls.enabled`, fetching over HTTPS without verifying the certificate. None of them render when `tests.enabled` is false, or when `tls.clientAuth.enabled` is on, because a hook Pod has no client certificate to present.
 
 | Template | Pod | Asserts |
 |---|---|---|
@@ -60,10 +60,11 @@ The Deployment renders one container with a fixed shape.
 |---|---|---|
 | `/etc/github-sts` | ConfigMap, read-only | The server configuration file. |
 | `/etc/github-sts/apps/{app}` | Secret, read-only | One mount per `github.apps` entry, projecting only the configured private key. |
+| `tls.mountPath` | Projected Secret, read-only | Rendered only when `tls.enabled` is true. Projects the serving certificate and key, plus the client CA bundle under `clientAuth`, from one or two Secrets into a single mount. Defaults to `/etc/github-sts-tls`, a directory of its own rather than a path under the configuration mount above. |
 | `/tmp` | `emptyDir` | The root filesystem is read-only, so scratch space has to be a volume. |
 | Parent of `audit.filePath` | `emptyDir`, 100 MiB | Rendered only when `audit.fileEnabled` is true. Deleted with the pod, so ship the stream off-node if you need it to survive. |
 
-The container listens on `service.targetPort` as the named port `http`, and serves:
+The container listens on `service.targetPort` as the named port `http`, or `https` when `tls.enabled` is on, and serves:
 
 | Path | Used by |
 |---|---|
@@ -71,6 +72,8 @@ The container listens on `service.targetPort` as the named port `http`, and serv
 | `/health` | The liveness probe and the `test-health` hook. |
 | `/ready` | The readiness probe, the startup probe, and the `test-ready` hook. |
 | `/metrics` | Prometheus, the monitors, and the `test-metrics` hook. Rendered only when `metrics.enabled` is true. |
+
+Under `tls.clientAuth.enabled` the kubelet stops using those paths: the probes become `tcpSocket` checks on the same port, because they cannot present a client certificate. See [TLS and mTLS]({{< relref "tls" >}}).
 
 ## Labels
 
@@ -80,4 +83,5 @@ Every object carries the standard recommended labels — `app.kubernetes.io/name
 
 - [Values Reference]({{< relref "values" >}}) for the values that gate these objects
 - [Networking]({{< relref "networking" >}}) for the routing and policy objects in context
+- [TLS and mTLS]({{< relref "tls" >}}) for the mounts and ports the `tls` values change
 - [Upgrade]({{< relref "upgrade" >}}) for how a change to these objects rolls out

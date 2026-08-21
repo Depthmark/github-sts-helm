@@ -84,10 +84,11 @@ Each entry accepts the following fields:
 
 ## Probes
 
-All three probes hit the container's HTTP port. Liveness uses `/health`; readiness and startup use `/ready`.
+All three probes hit the container's port. Liveness uses `/health`; readiness and startup use `/ready`. The transport follows `probes.mode` below.
 
 | Value | Default | Effect |
 |---|---|---|
+| `probes.mode` | `"auto"` | Probe transport. `auto` uses `httpGet`, over HTTPS when `tls.enabled` is on, and `tcpSocket` when `tls.clientAuth.enabled` is on. `httpGet` and `tcpSocket` force one. A `tcpSocket` probe only proves the port accepts connections, so forcing it hides an unready server. |
 | `probes.startup.enabled` | `false` | Adds a startup probe. While it runs, liveness and readiness are suspended, which is what lets a slow cold start avoid a liveness restart loop. Enable it when JWKS fetching or a large JTI cache restore can outlast the liveness budget. |
 | `probes.startup.initialDelaySeconds` | `0` | Delay before the first startup attempt. Usually 0, because the threshold already provides the budget. |
 | `probes.startup.periodSeconds` | `5` | Seconds between startup attempts. |
@@ -133,6 +134,7 @@ See [Networking]({{< relref "networking" >}}) for worked examples.
 | `service.type` | `"ClusterIP"` | Service type. |
 | `service.port` | `8080` | Port the Service listens on. |
 | `service.targetPort` | `8080` | Container port. Also written into the ConfigMap as the port the server binds. |
+| `service.appProtocol` | `""` | Value of `appProtocol` on the Service port. Empty means `https` when `tls.enabled` is on, and no field at all otherwise. |
 | `service.annotations` | `{}` | Service annotations, such as internal load balancer hints. |
 | `ingress.enabled` | `false` | Renders an Ingress. |
 | `ingress.className` | `""` | `ingressClassName` on the Ingress. |
@@ -144,6 +146,24 @@ See [Networking]({{< relref "networking" >}}) for worked examples.
 | `httproute.hostnames` | `[]` | Hostnames the route matches. |
 | `httproute.port` | `8080` | Backend Service port the route forwards to. |
 | `httproute.annotations` | `{}` | HTTPRoute annotations. |
+
+## TLS and mTLS
+
+Off by default: the pod serves plain HTTP and TLS terminates at the Ingress or the Gateway. See [TLS and mTLS]({{< relref "tls" >}}) for when to move termination into the pod and what changes when you do.
+
+| Value | Default | Effect |
+|---|---|---|
+| `tls.enabled` | `false` | Serves HTTPS from the pod. Mounts `existingSecret`, writes `server.tls` into the ConfigMap, renames the container and Service port to `https`, and points the probes, the monitors, and the test hooks at HTTPS. Requires a server image that supports `server.tls`. |
+| `tls.existingSecret` | `""` | Secret holding the serving certificate and key. Required when `tls.enabled` is true, and the render fails without it. The chart never creates it and no value accepts key material. |
+| `tls.certKey` | `"tls.crt"` | Key inside that Secret holding the PEM certificate chain. |
+| `tls.keyKey` | `"tls.key"` | Key inside that Secret holding the PEM private key. |
+| `tls.mountPath` | `"/etc/github-sts-tls"` | Where the certificate material is mounted. A directory of its own by default, which keeps it out of the configuration mount at `/etc/github-sts` and the per-app key mounts beneath it. Any path the container does not already use works. |
+| `tls.minVersion` | `"1.2"` | Minimum accepted TLS version, `"1.2"` or `"1.3"`. Under TLS 1.3 the suites are not configurable, and clients that cannot speak 1.3 are rejected, including the BusyBox image the test hooks use by default. |
+| `tls.cipherSuites` | `[]` | TLS 1.2 cipher suite allow-list, as IANA names. Empty means the Go defaults: ECDHE key exchange throughout, AES-GCM and ChaCha20-Poly1305 preferred, AES-CBC with a SHA-1 MAC still accepted. Setting it with `minVersion: "1.3"` is rejected, so the chart fails the render. |
+| `tls.reloadInterval` | `""` | Certificate reload poll interval, as a Go duration. Empty keeps the certificate the process read at startup, so a renewal only applies on the next restart. |
+| `tls.clientAuth.enabled` | `false` | Requires and verifies a client certificate on every connection, `/health`, `/ready`, and `/metrics` included. Probes fall back to `tcpSocket` and the test hooks stop rendering, because neither caller can present one. |
+| `tls.clientAuth.existingSecret` | `""` | Secret holding the trusted client CA bundle. Empty means `tls.existingSecret`, which is where cert-manager writes `ca.crt` next to the serving certificate. |
+| `tls.clientAuth.caKey` | `"ca.crt"` | Key inside that Secret holding the PEM CA bundle. |
 
 ## NetworkPolicy
 
@@ -277,6 +297,8 @@ Requires the Prometheus Operator CRDs. Scrapes through the Service.
 | `serviceMonitor.metricRelabelings` | `[]` | Relabeling applied to scraped samples. |
 | `serviceMonitor.relabelings` | `[]` | Relabeling applied to the target before scraping. |
 | `serviceMonitor.honorLabels` | `false` | Lets scraped labels win over target labels on collision. |
+| `serviceMonitor.scheme` | `""` | Scrape scheme. Empty means `https` when `tls.enabled` is on, and `http` otherwise. |
+| `serviceMonitor.tlsConfig` | `{}` | TLS settings for the scrape. Empty with `tls.enabled` on means `insecureSkipVerify: true`, because Prometheus connects to the Pod IP and a serving certificate carries no SAN for it. Supply `ca` and `serverName` to authenticate the target, and `cert` with `keySecret` when `tls.clientAuth.enabled` is on. |
 
 ### PodMonitor
 
@@ -294,6 +316,17 @@ The alternative to ServiceMonitor: scrapes pods directly, which is what you want
 | `podMonitor.metricRelabelings` | `[]` | Relabeling applied to scraped samples. |
 | `podMonitor.relabelings` | `[]` | Relabeling applied to the target before scraping. |
 | `podMonitor.honorLabels` | `false` | Lets scraped labels win over target labels on collision. |
+| `podMonitor.scheme` | `""` | Scrape scheme. Empty means `https` when `tls.enabled` is on, and `http` otherwise. |
+| `podMonitor.tlsConfig` | `{}` | TLS settings for the scrape. Empty with `tls.enabled` on means `insecureSkipVerify: true`, because Prometheus connects to the Pod IP and a serving certificate carries no SAN for it. Supply `ca` and `serverName` to authenticate the target, and `cert` with `keySecret` when `tls.clientAuth.enabled` is on. |
+
+## Helm tests
+
+The `helm test` hook Pods. See [Rendered Resources]({{< relref "resources" >}}) for what each one asserts.
+
+| Value | Default | Effect |
+|---|---|---|
+| `tests.enabled` | `true` | Renders the test hook Pods. They are created by `helm test`, never by `helm install`. Skipped automatically when `tls.clientAuth.enabled` is on, since the hooks hold no client certificate. |
+| `tests.image` | `"busybox:1.37"` | Image the hooks run. The hook script uses `curl` when the image provides it and falls back to `wget`. BusyBox speaks TLS 1.2 only, so `tls.minVersion: "1.3"` needs a curl image here. |
 
 <!-- values:end -->
 

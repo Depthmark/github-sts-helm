@@ -21,7 +21,7 @@ spec:
     - from:
         {{- toYaml . | nindent 8 }}
       ports:
-        - port: http
+        - port: {{ include "github-sts.portName" $ }}
           protocol: TCP
     {{- end }}
     {{- with $native.extraIngress }}

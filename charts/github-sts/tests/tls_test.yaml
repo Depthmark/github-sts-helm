@@ -1,0 +1,465 @@
+suite: TLS and mTLS
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - servicemonitor.yaml
+  - podmonitor.yaml
+  - networkpolicy.yaml
+  - tests/test-connection.yaml
+  - tests/test-metrics.yaml
+  - tests/test-readiness.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # Defaults — TLS off, nothing changes
+  # -------------------------------------------------------------------------
+  - it: should not render a tls section by default
+    template: configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "cert_file"
+
+  - it: should name the container port http by default
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: http
+
+  - it: should use plain httpGet probes by default
+    template: deployment.yaml
+    set:
+      probes.startup.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.port
+          value: http
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.scheme
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.scheme
+      - isNull:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.scheme
+
+  - it: should not mount a tls volume by default
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls
+          any: true
+
+  - it: should omit appProtocol by default
+    template: service.yaml
+    asserts:
+      - isNull:
+          path: spec.ports[0].appProtocol
+
+  # -------------------------------------------------------------------------
+  # TLS enabled — config rendering
+  # -------------------------------------------------------------------------
+  - it: should render cert and key paths when tls is enabled
+    template: configmap.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'cert_file: "/etc/github-sts-tls/tls.crt"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'key_file: "/etc/github-sts-tls/tls.key"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'min_version: "1.2"'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "client_ca_file"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "reload_interval"
+
+  - it: should honour custom mount path and secret keys
+    template: configmap.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.mountPath: /certs/
+      tls.certKey: server.pem
+      tls.keyKey: server-key.pem
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'cert_file: "/certs/server.pem"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'key_file: "/certs/server-key.pem"'
+
+  - it: should render cipher suites and reload interval
+    template: configmap.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.reloadInterval: 30m
+      tls.cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+        - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'cipher_suites:\n      - "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"\n      - "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'reload_interval: "30m"'
+
+  - it: should quote a numeric min version
+    template: configmap.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.minVersion: "1.3"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'min_version: "1.3"'
+
+  # -------------------------------------------------------------------------
+  # TLS enabled — pod spec
+  # -------------------------------------------------------------------------
+  - it: should mount the certificate secret and name the port https
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].ports[0].name
+          value: https
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: tls
+            mountPath: "/etc/github-sts-tls"
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: tls
+            projected:
+              sources:
+                - secret:
+                    name: github-sts-tls
+                    items:
+                      - key: tls.crt
+                        path: tls.crt
+                      - key: tls.key
+                        path: tls.key
+
+  - it: should point probes at HTTPS when tls is enabled
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      probes.startup.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.httpGet
+          value:
+            path: /ready
+            port: https
+            scheme: HTTPS
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+          value:
+            path: /ready
+            port: https
+            scheme: HTTPS
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet
+          value:
+            path: /health
+            port: https
+            scheme: HTTPS
+
+  - it: should expose the service as https
+    template: service.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+    asserts:
+      - equal:
+          path: spec.ports[0].name
+          value: https
+      - equal:
+          path: spec.ports[0].targetPort
+          value: https
+      - equal:
+          path: spec.ports[0].appProtocol
+          value: https
+
+  - it: should let appProtocol be overridden
+    template: service.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      service.appProtocol: kubernetes.io/h2c
+    asserts:
+      - equal:
+          path: spec.ports[0].appProtocol
+          value: kubernetes.io/h2c
+
+  - it: should use the https port name in the NetworkPolicy
+    template: networkpolicy.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      networkPolicy.native.enabled: true
+      networkPolicy.native.from:
+        - podSelector: {}
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: https
+
+  # -------------------------------------------------------------------------
+  # mTLS
+  # -------------------------------------------------------------------------
+  - it: should render the client CA path when client auth is enabled
+    template: configmap.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.clientAuth.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'client_ca_file: "/etc/github-sts-tls/ca.crt"'
+
+  - it: should project the client CA from the serving secret by default
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.clientAuth.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "tls")].projected.sources[1].secret.name
+          value: github-sts-tls
+
+  - it: should project the client CA from a dedicated secret when given one
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.clientAuth.enabled: true
+      tls.clientAuth.existingSecret: client-ca
+      tls.clientAuth.caKey: bundle.pem
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[?(@.name == "tls")].projected.sources[1].secret
+          value:
+            name: client-ca
+            items:
+              - key: bundle.pem
+                path: bundle.pem
+
+  - it: should fall back to tcpSocket probes under mTLS
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.clientAuth.enabled: true
+      probes.startup.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].startupProbe.tcpSocket.port
+          value: https
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
+          value: https
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
+          value: https
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet
+
+  # -------------------------------------------------------------------------
+  # probes.mode overrides
+  # -------------------------------------------------------------------------
+  - it: should allow forcing httpGet probes under mTLS
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.clientAuth.enabled: true
+      probes.mode: httpGet
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.scheme
+          value: HTTPS
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket
+
+  - it: should allow forcing tcpSocket probes without TLS
+    template: deployment.yaml
+    set:
+      probes.mode: tcpSocket
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.tcpSocket.port
+          value: http
+
+  # -------------------------------------------------------------------------
+  # Prometheus scraping
+  # -------------------------------------------------------------------------
+  - it: should scrape over https with skip-verify by default
+    template: servicemonitor.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      serviceMonitor.enabled: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].port
+          value: https
+      - equal:
+          path: spec.endpoints[0].scheme
+          value: https
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            insecureSkipVerify: true
+
+  - it: should use a supplied scrape tlsConfig instead of skip-verify
+    template: podmonitor.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      podMonitor.enabled: true
+      podMonitor.scheme: https
+      podMonitor.tlsConfig:
+        serverName: github-sts.example.com
+        ca:
+          secret:
+            name: github-sts-tls
+            key: ca.crt
+    asserts:
+      - equal:
+          path: spec.podMetricsEndpoints[0].tlsConfig.serverName
+          value: github-sts.example.com
+      - isNull:
+          path: spec.podMetricsEndpoints[0].tlsConfig.insecureSkipVerify
+
+  - it: should not set a scrape scheme when TLS is off
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+    asserts:
+      - isNull:
+          path: spec.endpoints[0].scheme
+      - isNull:
+          path: spec.endpoints[0].tlsConfig
+
+  # -------------------------------------------------------------------------
+  # helm test hook pods
+  # -------------------------------------------------------------------------
+  - it: should fetch over https in the test hooks when tls is enabled
+    template: tests/test-connection.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+    asserts:
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'URL="https://test-github-sts:8080/health"'
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: "--no-check-certificate"
+
+  - it: should not render test hooks under mTLS
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.clientAuth.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: tests/test-connection.yaml
+      - hasDocuments:
+          count: 0
+        template: tests/test-readiness.yaml
+      - hasDocuments:
+          count: 0
+        template: tests/test-metrics.yaml
+
+  - it: should not render test hooks when disabled
+    template: tests/test-connection.yaml
+    set:
+      tests.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should use the configured test image
+    template: tests/test-metrics.yaml
+    set:
+      tests.image: curlimages/curl:8.11.1
+    asserts:
+      - equal:
+          path: spec.containers[0].image
+          value: curlimages/curl:8.11.1
+
+  # -------------------------------------------------------------------------
+  # Validation
+  # -------------------------------------------------------------------------
+  - it: should fail when tls is enabled without a secret
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "tls.enabled requires tls.existingSecret"
+
+  - it: should fail when client auth is enabled without tls
+    template: deployment.yaml
+    set:
+      tls.clientAuth.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "tls.clientAuth.enabled requires tls.enabled"
+
+  - it: should fail on an unsupported min version
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.minVersion: "1.1"
+    asserts:
+      - failedTemplate:
+          errorPattern: "tls.minVersion must be"
+
+  - it: should fail when cipher suites are set with TLS 1.3
+    template: deployment.yaml
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.minVersion: "1.3"
+      tls.cipherSuites:
+        - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+    asserts:
+      - failedTemplate:
+          errorPattern: "tls.cipherSuites has no effect"
+
+  - it: should fail on an unknown probe mode
+    template: deployment.yaml
+    set:
+      probes.mode: exec
+    asserts:
+      - failedTemplate:
+          errorPattern: "probes.mode must be one of"

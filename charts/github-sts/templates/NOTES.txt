@@ -31,7 +31,7 @@ Get the application URL by running:
 
 Access the application via port-forward:
   kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "github-sts.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
-  echo "Visit http://127.0.0.1:{{ .Values.service.port }}"
+  echo "Visit {{ include "github-sts.scheme" . }}://127.0.0.1:{{ .Values.service.port }}"
 
 {{- end }}
 
@@ -55,4 +55,36 @@ Prometheus ServiceMonitor is enabled. Metrics will be scraped from {{ .Values.se
 {{- if .Values.podMonitor.enabled }}
 
 Prometheus PodMonitor is enabled. Metrics will be scraped from {{ .Values.podMonitor.path }}.
+{{- end }}
+
+{{- if .Values.tls.enabled }}
+
+TLS is terminated by github-sts itself on port {{ .Values.service.targetPort }}, using the
+certificate in Secret "{{ .Values.tls.existingSecret }}" mounted at {{ .Values.tls.mountPath }}.
+{{- if not .Values.tls.reloadInterval }}
+  Certificate rotation requires a pod restart. Set tls.reloadInterval (e.g. "1h")
+  to pick up renewals in place.
+{{- end }}
+{{- if .Values.ingress.enabled }}
+  NOTE: your Ingress controller now talks HTTPS to the backend. Add the
+  controller-specific annotation, e.g. for ingress-nginx:
+    ingress.annotations."nginx\.ingress\.kubernetes\.io/backend-protocol"=HTTPS
+{{- end }}
+{{- if .Values.httproute.enabled }}
+  NOTE: your Gateway now talks HTTPS to the backend. Gateway API needs a
+  BackendTLSPolicy targeting Service/{{ include "github-sts.fullname" . }} for this to work.
+{{- end }}
+{{- if include "github-sts.mtlsEnabled" . }}
+
+Client certificates are REQUIRED (mTLS) on every endpoint, /health, /ready and
+/metrics included:
+  - kubelet probes were switched to tcpSocket, so they no longer verify that
+    /ready returns 200 — only that the port accepts connections.
+  - the "helm test" hook pods are not rendered; they cannot present a client
+    certificate.
+{{- if or .Values.serviceMonitor.enabled .Values.podMonitor.enabled }}
+  - Prometheus needs client credentials in serviceMonitor.tlsConfig /
+    podMonitor.tlsConfig or scrapes will fail the handshake.
+{{- end }}
+{{- end }}
 {{- end }}

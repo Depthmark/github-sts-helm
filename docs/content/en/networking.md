@@ -11,6 +11,8 @@ A default install renders a `ClusterIP` Service and nothing else. Clients outsid
 
 Enable exactly one of `ingress` and `httproute`. Both forward to the same Service, and running both leaves two independent paths to the same endpoint with two independent TLS configurations.
 
+Both terminate TLS in front of the pod, which keeps plain HTTP on the hop between the proxy and the Service. [TLS and mTLS]({{< relref "tls" >}}) covers the deployments where that hop has to be encrypted too, and where clients have to present a certificate.
+
 ### Ingress
 
 ```yaml

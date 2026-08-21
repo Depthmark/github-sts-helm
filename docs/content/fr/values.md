@@ -85,10 +85,11 @@ Chaque entrée accepte les champs suivants :
 
 ## Sondes
 
-Les trois sondes interrogent le port HTTP du conteneur. La sonde de vivacité utilise `/health` ; les sondes de disponibilité et de démarrage utilisent `/ready`.
+Les trois sondes interrogent le port du conteneur. La sonde de vivacité utilise `/health` ; les sondes de disponibilité et de démarrage utilisent `/ready`. Le transport suit `probes.mode` ci-dessous.
 
 | Valeur | Défaut | Effet |
 |---|---|---|
+| `probes.mode` | `"auto"` | Transport des sondes. `auto` utilise `httpGet`, en HTTPS lorsque `tls.enabled` est actif, et `tcpSocket` lorsque `tls.clientAuth.enabled` est actif. `httpGet` et `tcpSocket` en imposent un. Une sonde `tcpSocket` prouve seulement que le port accepte les connexions : la forcer masque un serveur qui n'est pas prêt. |
 | `probes.startup.enabled` | `false` | Ajoute une sonde de démarrage. Tant qu'elle s'exécute, les sondes de vivacité et de disponibilité sont suspendues, ce qui évite qu'un démarrage à froid lent déclenche une boucle de redémarrage. À activer lorsque la récupération des JWKS ou la restauration d'un grand cache de JTI peut dépasser le budget de vivacité. |
 | `probes.startup.initialDelaySeconds` | `0` | Délai avant la première tentative de démarrage. Généralement 0, le seuil fournissant déjà le budget. |
 | `probes.startup.periodSeconds` | `5` | Secondes entre deux tentatives de démarrage. |
@@ -134,6 +135,7 @@ Voir [Réseau]({{< relref "networking" >}}) pour des exemples complets.
 | `service.type` | `"ClusterIP"` | Type de Service. |
 | `service.port` | `8080` | Port d'écoute du Service. |
 | `service.targetPort` | `8080` | Port du conteneur. Également écrit dans le ConfigMap comme port d'écoute du serveur. |
+| `service.appProtocol` | `""` | Valeur du champ `appProtocol` du port du Service. Vide signifie `https` lorsque `tls.enabled` est actif, et aucun champ sinon. |
 | `service.annotations` | `{}` | Annotations du Service, par exemple pour un équilibreur de charge interne. |
 | `ingress.enabled` | `false` | Génère un Ingress. |
 | `ingress.className` | `""` | `ingressClassName` de l'Ingress. |
@@ -145,6 +147,24 @@ Voir [Réseau]({{< relref "networking" >}}) pour des exemples complets.
 | `httproute.hostnames` | `[]` | Noms d'hôtes que la route reconnaît. |
 | `httproute.port` | `8080` | Port du Service de destination vers lequel la route achemine. |
 | `httproute.annotations` | `{}` | Annotations de la HTTPRoute. |
+
+## TLS et mTLS
+
+Désactivé par défaut : le pod sert du HTTP en clair et TLS se termine sur l'Ingress ou la Gateway. Voir [TLS et mTLS]({{< relref "tls" >}}) pour savoir quand déplacer la terminaison dans le pod et ce que cela change.
+
+| Valeur | Défaut | Effet |
+|---|---|---|
+| `tls.enabled` | `false` | Sert HTTPS depuis le pod. Monte `existingSecret`, écrit `server.tls` dans le ConfigMap, renomme le port du conteneur et du Service en `https`, et pointe les sondes, les moniteurs et les hooks de test vers HTTPS. Exige une image serveur qui prend en charge `server.tls`. |
+| `tls.existingSecret` | `""` | Secret contenant le certificat de service et sa clé. Obligatoire lorsque `tls.enabled` est vrai : sans lui le rendu échoue. Le chart ne le crée jamais et aucune valeur n'accepte de matériel cryptographique. |
+| `tls.certKey` | `"tls.crt"` | Clé de ce Secret contenant la chaîne de certificats au format PEM. |
+| `tls.keyKey` | `"tls.key"` | Clé de ce Secret contenant la clé privée au format PEM. |
+| `tls.mountPath` | `"/etc/github-sts-tls"` | Emplacement de montage du matériel cryptographique. Un répertoire distinct par défaut, ce qui le tient à l'écart du montage de configuration `/etc/github-sts` et des montages de clés par app situés dessous. N'importe quel chemin que le conteneur n'utilise pas déjà convient. |
+| `tls.minVersion` | `"1.2"` | Version TLS minimale acceptée, `"1.2"` ou `"1.3"`. Sous TLS 1.3, les suites ne sont plus configurables, et les clients qui ne parlent pas 1.3 sont rejetés, dont l'image BusyBox utilisée par défaut par les hooks de test. |
+| `tls.cipherSuites` | `[]` | Liste d'autorisation de suites cryptographiques TLS 1.2, en noms IANA. Vide signifie les valeurs par défaut de Go : échange de clés ECDHE partout, AES-GCM et ChaCha20-Poly1305 préférés, AES-CBC avec un MAC SHA-1 encore accepté. La renseigner avec `minVersion: "1.3"` est rejeté : le chart fait alors échouer le rendu. |
+| `tls.reloadInterval` | `""` | Intervalle de rechargement du certificat, en durée Go. Vide conserve le certificat lu au démarrage : un renouvellement ne prend effet qu'au redémarrage suivant. |
+| `tls.clientAuth.enabled` | `false` | Exige et vérifie un certificat client sur chaque connexion, `/health`, `/ready` et `/metrics` compris. Les sondes basculent en `tcpSocket` et les hooks de test ne sont plus générés, car aucun des deux ne peut présenter de certificat. |
+| `tls.clientAuth.existingSecret` | `""` | Secret contenant le bundle de CA clientes de confiance. Vide signifie `tls.existingSecret`, où cert-manager écrit `ca.crt` à côté du certificat de service. |
+| `tls.clientAuth.caKey` | `"ca.crt"` | Clé de ce Secret contenant le bundle de CA au format PEM. |
 
 ## NetworkPolicy
 
@@ -278,6 +298,8 @@ Exige les CRD Prometheus Operator. Collecte via le Service.
 | `serviceMonitor.metricRelabelings` | `[]` | Réétiquetage appliqué aux échantillons collectés. |
 | `serviceMonitor.relabelings` | `[]` | Réétiquetage appliqué à la cible avant la collecte. |
 | `serviceMonitor.honorLabels` | `false` | Donne la priorité aux labels collectés sur ceux de la cible en cas de collision. |
+| `serviceMonitor.scheme` | `""` | Schéma de collecte. Vide signifie `https` lorsque `tls.enabled` est actif, et `http` sinon. |
+| `serviceMonitor.tlsConfig` | `{}` | Réglages TLS de la collecte. Vide avec `tls.enabled` actif signifie `insecureSkipVerify: true`, car Prometheus se connecte à l'IP du pod, pour laquelle un certificat de service ne porte aucun SAN. Renseignez `ca` et `serverName` pour authentifier la cible, et `cert` avec `keySecret` lorsque `tls.clientAuth.enabled` est actif. |
 
 ### PodMonitor
 
@@ -295,6 +317,17 @@ L'alternative au ServiceMonitor : collecte directement auprès des pods, ce qu'i
 | `podMonitor.metricRelabelings` | `[]` | Réétiquetage appliqué aux échantillons collectés. |
 | `podMonitor.relabelings` | `[]` | Réétiquetage appliqué à la cible avant la collecte. |
 | `podMonitor.honorLabels` | `false` | Donne la priorité aux labels collectés sur ceux de la cible en cas de collision. |
+| `podMonitor.scheme` | `""` | Schéma de collecte. Vide signifie `https` lorsque `tls.enabled` est actif, et `http` sinon. |
+| `podMonitor.tlsConfig` | `{}` | Réglages TLS de la collecte. Vide avec `tls.enabled` actif signifie `insecureSkipVerify: true`, car Prometheus se connecte à l'IP du pod, pour laquelle un certificat de service ne porte aucun SAN. Renseignez `ca` et `serverName` pour authentifier la cible, et `cert` avec `keySecret` lorsque `tls.clientAuth.enabled` est actif. |
+
+## Tests Helm
+
+Les pods de hook `helm test`. Voir [Ressources générées]({{< relref "resources" >}}) pour ce que chacun vérifie.
+
+| Valeur | Défaut | Effet |
+|---|---|---|
+| `tests.enabled` | `true` | Génère les pods de hook de test. Ils sont créés par `helm test`, jamais par `helm install`. Ignorés automatiquement lorsque `tls.clientAuth.enabled` est actif, puisque les hooks ne détiennent aucun certificat client. |
+| `tests.image` | `"busybox:1.37"` | Image exécutée par les hooks. Leur script utilise `curl` lorsque l'image le fournit, et se rabat sur `wget`. BusyBox ne parle que TLS 1.2 : `tls.minVersion: "1.3"` exige donc une image curl ici. |
 
 <!-- values:end -->
 

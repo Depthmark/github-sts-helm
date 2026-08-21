@@ -12,6 +12,8 @@ Une installation par défaut génère un Service `ClusterIP` et rien d'autre. Le
 
 Activez exactement l'un de `ingress` et `httproute`. Les deux acheminent vers le même Service, et activer les deux laisse deux chemins indépendants vers le même point d'entrée, avec deux configurations TLS indépendantes.
 
+Les deux terminent TLS devant le pod, ce qui laisse du HTTP en clair sur le saut entre le proxy et le Service. [TLS et mTLS]({{< relref "tls" >}}) couvre les déploiements où ce saut doit lui aussi être chiffré, et ceux où les clients doivent présenter un certificat.
+
 ### Ingress
 
 ```yaml
