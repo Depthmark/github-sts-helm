@@ -15,9 +15,13 @@ The `tls` block covers the deployments where that is not enough:
 
 ## Prerequisites
 
-A server image that supports the `server.tls` configuration section. A server that does not know the section ignores it and keeps serving plain HTTP, while the chart has already pointed the probes at HTTPS, so the pods fail readiness and the release never finishes rolling. Check [Compatibility]({{< relref "/integrations/compatibility" >}}) before enabling.
+A server image that supports the `server.tls` configuration section. A server that does not know the section ignores it and keeps serving plain HTTP, while the chart has already pointed the probes at HTTPS, so the pods fail readiness and the release never finishes rolling.
 
-A certificate and key in a Secret you own. The chart never generates certificates. A `kubernetes.io/tls` Secret from cert-manager, from an internal PKI, or from `kubectl create secret tls` works as it is, because `tls.certKey` and `tls.keyKey` already default to `tls.crt` and `tls.key`. A self-signed certificate is a local testing tool: it forces every client to trust a CA created for one workload, which is the opposite of what a certificate is for.
+Support landed after server `v0.0.3`, and at the time of writing no tagged release carries it. `image.tag` defaults to the chart's `appVersion`, so a default install pulls an image without `server.tls`: set `image.tag` to a release that has it. [Compatibility]({{< relref "/integrations/compatibility" >}}) lists the verified combinations.
+
+A build new enough for `server.tls` is also new enough to require a top-level `bundle_enforcement` value, which the chart does not render. Supply it through `extraEnv` as described under [Policy bundles]({{< relref "values#policy-bundles" >}}), or the pod fails to start before TLS ever comes into play.
+
+A certificate and key in a Secret you own. The chart never generates certificates. A `kubernetes.io/tls` Secret from cert-manager, from an internal PKI, or from `kubectl create secret tls` works as it is, because `tls.certKey` and `tls.keyKey` already default to `tls.crt` and `tls.key`. A self-signed certificate is a local testing tool: it forces every client to trust a CA created for one workload, which is the opposite of what a certificate is for. [Local TLS testing]({{< relref "/operations/tls-local-testing" >}}) covers that workflow.
 
 ## Serve HTTPS from the pod
 
@@ -30,7 +34,7 @@ tls:
 
 The chart refuses to render `tls.enabled: true` without `tls.existingSecret`, rather than starting a pod that has no certificate to serve.
 
-Enabling TLS changes six things:
+Enabling TLS changes five things, and deliberately not a sixth:
 
 | What | Change |
 |---|---|
@@ -41,7 +45,7 @@ Enabling TLS changes six things:
 | `helm test` hooks | Fetch over HTTPS without verifying the certificate. |
 | The proxy in front | Nothing. Ingress and Gateway keep sending plain HTTP until you configure them, which is the next section. |
 
-The mount path sits beside `/etc/github-sts` rather than inside it. The ConfigMap is mounted read-only at `/etc/github-sts`, and a container runtime cannot create a mount point inside a read-only mount, so a nested path fails at container creation with a read-only filesystem error. Override `tls.mountPath` if you like, but keep it out of `/etc/github-sts`.
+The default is a directory of its own rather than a subdirectory of `/etc/github-sts`, which keeps the certificate material separate from the configuration mount and from the per-app key mounts. Override `tls.mountPath` with any path the container does not already use.
 
 ### Rotate without a restart
 
@@ -106,7 +110,7 @@ The server requires and verifies a client certificate for the whole listener. `/
 | `helm test` hooks | Stops rendering them. The hook Pods have no certificate, so every assertion would fail at the handshake. |
 | Prometheus | Nothing automatic. Put the client credentials in `serviceMonitor.tlsConfig` or `podMonitor.tlsConfig`, or scrapes fail. |
 
-The probe change is a real loss of signal. A `tcpSocket` probe proves the listener accepts connections, not that `/ready` returns 200, so a server that is up but not ready stays in the Service endpoints. Readiness gating for anything richer than that has to come from a caller that holds a certificate. `probes.mode: httpGet` forces the HTTP probes back, and is correct only when something else terminates mTLS before the container.
+The probe change is a real loss of signal. A `tcpSocket` probe proves the listener accepts connections, not that `/ready` returns 200, so a server that is up but not ready stays in the Service endpoints. Readiness gating for anything richer than that has to come from a caller that holds a certificate. `probes.mode: httpGet` restores the HTTPS probes, which then fail the handshake against this listener like any other client without a certificate. It is correct only when something else terminates mTLS in front of the container.
 
 ## Scrape metrics over TLS
 
@@ -143,9 +147,9 @@ serviceMonitor:
 
 ## Choose a version and cipher suites
 
-`tls.minVersion` accepts `"1.2"`, the default, and `"1.3"`. TLS 1.3 removes cipher negotiation entirely and rejects clients that cannot speak it, which includes the BusyBox image the `helm test` hooks run by default.
+`tls.minVersion` accepts `"1.2"`, the default, and `"1.3"`. Under TLS 1.3 the cipher suites are no longer configurable, and clients that cannot speak 1.3 are rejected, which includes the BusyBox image the `helm test` hooks run by default.
 
-`tls.cipherSuites` is an allow-list of IANA names for TLS 1.2 only. Leave it empty and the server uses the Go defaults, which are already AEAD-only. Setting it together with `minVersion: "1.3"` is a configuration error the server rejects at startup, so the chart fails the render instead:
+`tls.cipherSuites` is an allow-list of IANA names for TLS 1.2 only. Leave it empty and the server uses the Go defaults: ECDHE key exchange throughout, AES-GCM and ChaCha20-Poly1305 preferred, but AES-CBC with a SHA-1 MAC still accepted if a client insists. Pin the list when that last part is not acceptable to you. Setting it together with `minVersion: "1.3"` is a configuration error the server rejects at startup, so the chart fails the render instead:
 
 ```yaml
 tls:
@@ -212,4 +216,5 @@ helm test github-sts --namespace github-sts
 - [Values Reference]({{< relref "values" >}}) for every `tls` value and its default
 - [Rendered Resources]({{< relref "resources" >}}) for the mounts and ports these values change
 - [Networking]({{< relref "networking" >}}) for the route in front of the Service
+- [Configuration]({{< relref "/reference/configuration" >}}) for what the server does with the `server.tls` block this chart writes
 - [Security Model]({{< relref "/concepts/security-model" >}}) for what the server authenticates on top of the transport

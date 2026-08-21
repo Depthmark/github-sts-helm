@@ -113,9 +113,9 @@ spec:
           configMap:
             name: {{ include "github-sts.fullname" . }}-config
         {{- if .Values.tls.enabled }}
-        {{- /* Projected rather than two Secret volumes: the client CA may live in
-        a different Secret, and a second mount nested under the first would need
-        a mountpoint the read-only Secret volume cannot provide. */}}
+        {{- /* Projected rather than two Secret volumes: the client CA may live
+        in a different Secret, and one mount keeps every file at a path the
+        rendered config can name without a second mountPath value. */}}
         - name: tls
           projected:
             sources:

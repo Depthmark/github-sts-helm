@@ -357,20 +357,23 @@ tls:
   certKey: "tls.crt"
   # -- Key inside `existingSecret` holding the PEM private key.
   keyKey: "tls.key"
-  # -- Directory the certificate material is mounted at. Deliberately *not* a
-  # subdirectory of `/etc/github-sts`: the config ConfigMap is mounted there
-  # read-only, and the container runtime cannot create a nested mountpoint
-  # inside a read-only mount (the pod would fail to start).
+  # -- Directory the certificate material is mounted at. A directory of its
+  # own by default, which keeps it out of `/etc/github-sts`, where the config
+  # ConfigMap and the per-app key mounts already live. Any path the container
+  # does not already use works.
   mountPath: "/etc/github-sts-tls"
   # -- Minimum accepted TLS version: `"1.2"` or `"1.3"`. Raise to `"1.3"` when
-  # every client supports it — it removes the whole TLS 1.2 cipher negotiation
-  # surface, at the cost of rejecting older clients outright.
+  # every client supports it: the suites stop being configurable and the
+  # TLS 1.2 negotiation surface goes away, at the cost of rejecting older
+  # clients outright.
   minVersion: "1.2"
   # -- TLS 1.2 cipher suite allow-list, as IANA names
   # (e.g. `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`). Empty means the Go
-  # defaults, which are already AEAD-only. Must be empty when
-  # `minVersion` is `"1.3"` — TLS 1.3 suites are not negotiable and the
-  # application rejects the combination at startup.
+  # defaults: ECDHE key exchange throughout, AES-GCM and ChaCha20-Poly1305
+  # preferred, but AES-CBC with a SHA-1 MAC still accepted. Pin the list when
+  # that last part is not acceptable. Must be empty when `minVersion` is
+  # `"1.3"`, where suites are not configurable and the application rejects the
+  # combination at startup.
   cipherSuites: []
     # - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
     # - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384

@@ -61,7 +61,7 @@ Le Deployment produit un conteneur unique dont la forme est fixe.
 |---|---|---|
 | `/etc/github-sts` | ConfigMap, lecture seule | Le fichier de configuration du serveur. |
 | `/etc/github-sts/apps/{app}` | Secret, lecture seule | Un montage par entrée de `github.apps`, projetant uniquement la clé privée configurée. |
-| `tls.mountPath` | Secret projeté, lecture seule | Généré uniquement lorsque `tls.enabled` est vrai. Projette le certificat de service et sa clé, plus le bundle de CA clientes sous `clientAuth`, depuis un ou deux Secrets vers un montage unique. Vaut `/etc/github-sts-tls` par défaut, délibérément hors du montage ConfigMap en lecture seule ci-dessus. |
+| `tls.mountPath` | Secret projeté, lecture seule | Généré uniquement lorsque `tls.enabled` est vrai. Projette le certificat de service et sa clé, plus le bundle de CA clientes sous `clientAuth`, depuis un ou deux Secrets vers un montage unique. Vaut `/etc/github-sts-tls` par défaut : un répertoire distinct plutôt qu'un chemin sous le montage de configuration ci-dessus. |
 | `/tmp` | `emptyDir` | Le système de fichiers racine étant en lecture seule, l'espace de travail doit être un volume. |
 | Parent de `audit.filePath` | `emptyDir`, 100 Mio | Généré uniquement lorsque `audit.fileEnabled` est vrai. Supprimé avec le pod : exportez le flux hors du nœud s'il doit survivre. |
 

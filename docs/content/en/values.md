@@ -84,7 +84,7 @@ Each entry accepts the following fields:
 
 ## Probes
 
-All three probes hit the container's HTTP port. Liveness uses `/health`; readiness and startup use `/ready`.
+All three probes hit the container's port. Liveness uses `/health`; readiness and startup use `/ready`. The transport follows `probes.mode` below.
 
 | Value | Default | Effect |
 |---|---|---|
@@ -157,9 +157,9 @@ Off by default: the pod serves plain HTTP and TLS terminates at the Ingress or t
 | `tls.existingSecret` | `""` | Secret holding the serving certificate and key. Required when `tls.enabled` is true, and the render fails without it. The chart never creates it and no value accepts key material. |
 | `tls.certKey` | `"tls.crt"` | Key inside that Secret holding the PEM certificate chain. |
 | `tls.keyKey` | `"tls.key"` | Key inside that Secret holding the PEM private key. |
-| `tls.mountPath` | `"/etc/github-sts-tls"` | Where the certificate material is mounted. Keep it outside `/etc/github-sts`: the ConfigMap is mounted there read-only, and a container runtime cannot create a mount point inside a read-only mount. |
-| `tls.minVersion` | `"1.2"` | Minimum accepted TLS version, `"1.2"` or `"1.3"`. TLS 1.3 removes cipher negotiation and rejects clients that cannot speak it, including the BusyBox image the test hooks use by default. |
-| `tls.cipherSuites` | `[]` | TLS 1.2 cipher suite allow-list, as IANA names. Empty means the Go defaults, which are already AEAD-only. Setting it with `minVersion: "1.3"` is rejected, so the chart fails the render. |
+| `tls.mountPath` | `"/etc/github-sts-tls"` | Where the certificate material is mounted. A directory of its own by default, which keeps it out of the configuration mount at `/etc/github-sts` and the per-app key mounts beneath it. Any path the container does not already use works. |
+| `tls.minVersion` | `"1.2"` | Minimum accepted TLS version, `"1.2"` or `"1.3"`. Under TLS 1.3 the suites are not configurable, and clients that cannot speak 1.3 are rejected, including the BusyBox image the test hooks use by default. |
+| `tls.cipherSuites` | `[]` | TLS 1.2 cipher suite allow-list, as IANA names. Empty means the Go defaults: ECDHE key exchange throughout, AES-GCM and ChaCha20-Poly1305 preferred, AES-CBC with a SHA-1 MAC still accepted. Setting it with `minVersion: "1.3"` is rejected, so the chart fails the render. |
 | `tls.reloadInterval` | `""` | Certificate reload poll interval, as a Go duration. Empty keeps the certificate the process read at startup, so a renewal only applies on the next restart. |
 | `tls.clientAuth.enabled` | `false` | Requires and verifies a client certificate on every connection, `/health`, `/ready`, and `/metrics` included. Probes fall back to `tcpSocket` and the test hooks stop rendering, because neither caller can present one. |
 | `tls.clientAuth.existingSecret` | `""` | Secret holding the trusted client CA bundle. Empty means `tls.existingSecret`, which is where cert-manager writes `ca.crt` next to the serving certificate. |

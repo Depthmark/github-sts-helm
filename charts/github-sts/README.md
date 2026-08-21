@@ -312,15 +312,15 @@ jobs:
 | tests.enabled | bool | `true` | Render the `helm test` hook pods. Automatically skipped when `tls.clientAuth.enabled` is true, since the probe pods have no client certificate to present and every request would be rejected at the handshake. |
 | tests.image | string | `"busybox:1.37"` | Image the test pods run. The test script uses `curl` when the image provides it and falls back to `wget`, so a curl image can be dropped in as is. Override the default when `tls.minVersion` is `"1.3"`: BusyBox's built-in TLS stack only speaks TLS 1.2 and the handshake would fail. |
 | tls.certKey | string | `"tls.crt"` | Key inside `existingSecret` holding the PEM certificate chain. |
-| tls.cipherSuites | list | `[]` | TLS 1.2 cipher suite allow-list, as IANA names (e.g. `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`). Empty means the Go defaults, which are already AEAD-only. Must be empty when `minVersion` is `"1.3"` — TLS 1.3 suites are not negotiable and the application rejects the combination at startup. |
+| tls.cipherSuites | list | `[]` | TLS 1.2 cipher suite allow-list, as IANA names (e.g. `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`). Empty means the Go defaults: ECDHE key exchange throughout, AES-GCM and ChaCha20-Poly1305 preferred, but AES-CBC with a SHA-1 MAC still accepted. Pin the list when that last part is not acceptable. Must be empty when `minVersion` is `"1.3"`, where suites are not configurable and the application rejects the combination at startup. |
 | tls.clientAuth.caKey | string | `"ca.crt"` | Key inside the CA Secret holding the PEM CA bundle. |
 | tls.clientAuth.enabled | bool | `false` | Require every client to present a certificate signed by the CA bundle in `clientAuth.caKey`. Verification is enforced for the whole listener — `/health`, `/ready` and `/metrics` included — so the chart switches the kubelet probes to `tcpSocket` (the kubelet cannot present a client certificate) and skips the `helm test` hooks. Prometheus needs client credentials in `serviceMonitor.tlsConfig` / `podMonitor.tlsConfig` to keep scraping. |
 | tls.clientAuth.existingSecret | string | `""` | Existing Secret holding the trusted client CA bundle. Defaults to `tls.existingSecret`, which is convenient when cert-manager writes `ca.crt` alongside the serving cert. Point it at a separate Secret when the client CA is a different trust root than the serving CA. |
 | tls.enabled | bool | `false` | Serve HTTPS directly from the pod. Switches the container port name to `https`, points the probes at the HTTPS scheme, and makes the chart mount `existingSecret` into the pod. Terminating at the ingress/Gateway remains the simpler model; reach for this only when the extra hop matters. |
 | tls.existingSecret | string | `""` | Existing Secret holding the server certificate and private key. Required when `tls.enabled` is true. A standard `kubernetes.io/tls` Secret works as is (cert-manager, an internal PKI, or `kubectl create secret tls`); an Opaque Secret works too as long as `certKey` / `keyKey` name its keys. The chart never generates certificates — a self-signed cert is a local-testing tool, not a deployment target. |
 | tls.keyKey | string | `"tls.key"` | Key inside `existingSecret` holding the PEM private key. |
-| tls.minVersion | string | `"1.2"` | Minimum accepted TLS version: `"1.2"` or `"1.3"`. Raise to `"1.3"` when every client supports it — it removes the whole TLS 1.2 cipher negotiation surface, at the cost of rejecting older clients outright. |
-| tls.mountPath | string | `"/etc/github-sts-tls"` | Directory the certificate material is mounted at. Deliberately *not* a subdirectory of `/etc/github-sts`: the config ConfigMap is mounted there read-only, and the container runtime cannot create a nested mountpoint inside a read-only mount (the pod would fail to start). |
+| tls.minVersion | string | `"1.2"` | Minimum accepted TLS version: `"1.2"` or `"1.3"`. Raise to `"1.3"` when every client supports it: the suites stop being configurable and the TLS 1.2 negotiation surface goes away, at the cost of rejecting older clients outright. |
+| tls.mountPath | string | `"/etc/github-sts-tls"` | Directory the certificate material is mounted at. A directory of its own by default, which keeps it out of `/etc/github-sts`, where the config ConfigMap and the per-app key mounts already live. Any path the container does not already use works. |
 | tls.reloadInterval | string | `""` | Certificate hot-reload poll interval (Go duration string, e.g. `"1h"`). Empty or `"0"` disables it. Kubernetes updates a mounted Secret in place on renewal, so without polling a cert-manager rotation only takes effect at the next pod restart. Set this to something well under the renewal window (cert-manager renews at 2/3 of lifetime by default) for rotation without a rollout. |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
@@ -385,7 +385,7 @@ credentials in `serviceMonitor.tlsConfig` or `podMonitor.tlsConfig`.
 
 Requires a server image that supports the `server.tls` configuration section.
 Full guidance, including certificate rotation, cipher suites, and verification
-steps, is in [docs/content/en/tls.md](../../docs/content/en/tls.md).
+steps, is in [the TLS and mTLS guide](https://github.com/Depthmark/github-sts-helm/blob/main/docs/content/en/tls.md).
 
 ## Testing
 

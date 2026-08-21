@@ -85,7 +85,7 @@ Chaque entrée accepte les champs suivants :
 
 ## Sondes
 
-Les trois sondes interrogent le port HTTP du conteneur. La sonde de vivacité utilise `/health` ; les sondes de disponibilité et de démarrage utilisent `/ready`.
+Les trois sondes interrogent le port du conteneur. La sonde de vivacité utilise `/health` ; les sondes de disponibilité et de démarrage utilisent `/ready`. Le transport suit `probes.mode` ci-dessous.
 
 | Valeur | Défaut | Effet |
 |---|---|---|
@@ -158,9 +158,9 @@ Désactivé par défaut : le pod sert du HTTP en clair et TLS se termine sur l'I
 | `tls.existingSecret` | `""` | Secret contenant le certificat de service et sa clé. Obligatoire lorsque `tls.enabled` est vrai : sans lui le rendu échoue. Le chart ne le crée jamais et aucune valeur n'accepte de matériel cryptographique. |
 | `tls.certKey` | `"tls.crt"` | Clé de ce Secret contenant la chaîne de certificats au format PEM. |
 | `tls.keyKey` | `"tls.key"` | Clé de ce Secret contenant la clé privée au format PEM. |
-| `tls.mountPath` | `"/etc/github-sts-tls"` | Emplacement de montage du matériel cryptographique. Gardez-le hors de `/etc/github-sts` : le ConfigMap y est monté en lecture seule, et un runtime de conteneur ne peut pas créer un point de montage à l'intérieur d'un montage en lecture seule. |
-| `tls.minVersion` | `"1.2"` | Version TLS minimale acceptée, `"1.2"` ou `"1.3"`. TLS 1.3 supprime la négociation de suites et rejette les clients qui ne le parlent pas, dont l'image BusyBox utilisée par défaut par les hooks de test. |
-| `tls.cipherSuites` | `[]` | Liste blanche de suites cryptographiques TLS 1.2, en noms IANA. Vide signifie les valeurs par défaut de Go, déjà limitées aux suites AEAD. La renseigner avec `minVersion: "1.3"` est rejeté : le chart fait alors échouer le rendu. |
+| `tls.mountPath` | `"/etc/github-sts-tls"` | Emplacement de montage du matériel cryptographique. Un répertoire distinct par défaut, ce qui le tient à l'écart du montage de configuration `/etc/github-sts` et des montages de clés par app situés dessous. N'importe quel chemin que le conteneur n'utilise pas déjà convient. |
+| `tls.minVersion` | `"1.2"` | Version TLS minimale acceptée, `"1.2"` ou `"1.3"`. Sous TLS 1.3, les suites ne sont plus configurables, et les clients qui ne parlent pas 1.3 sont rejetés, dont l'image BusyBox utilisée par défaut par les hooks de test. |
+| `tls.cipherSuites` | `[]` | Liste d'autorisation de suites cryptographiques TLS 1.2, en noms IANA. Vide signifie les valeurs par défaut de Go : échange de clés ECDHE partout, AES-GCM et ChaCha20-Poly1305 préférés, AES-CBC avec un MAC SHA-1 encore accepté. La renseigner avec `minVersion: "1.3"` est rejeté : le chart fait alors échouer le rendu. |
 | `tls.reloadInterval` | `""` | Intervalle de rechargement du certificat, en durée Go. Vide conserve le certificat lu au démarrage : un renouvellement ne prend effet qu'au redémarrage suivant. |
 | `tls.clientAuth.enabled` | `false` | Exige et vérifie un certificat client sur chaque connexion, `/health`, `/ready` et `/metrics` compris. Les sondes basculent en `tcpSocket` et les hooks de test ne sont plus générés, car aucun des deux ne peut présenter de certificat. |
 | `tls.clientAuth.existingSecret` | `""` | Secret contenant le bundle de CA clientes de confiance. Vide signifie `tls.existingSecret`, où cert-manager écrit `ca.crt` à côté du certificat de service. |

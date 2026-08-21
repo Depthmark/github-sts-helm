@@ -60,7 +60,7 @@ The Deployment renders one container with a fixed shape.
 |---|---|---|
 | `/etc/github-sts` | ConfigMap, read-only | The server configuration file. |
 | `/etc/github-sts/apps/{app}` | Secret, read-only | One mount per `github.apps` entry, projecting only the configured private key. |
-| `tls.mountPath` | Projected Secret, read-only | Rendered only when `tls.enabled` is true. Projects the serving certificate and key, plus the client CA bundle under `clientAuth`, from one or two Secrets into a single mount. Defaults to `/etc/github-sts-tls`, deliberately outside the read-only ConfigMap mount above. |
+| `tls.mountPath` | Projected Secret, read-only | Rendered only when `tls.enabled` is true. Projects the serving certificate and key, plus the client CA bundle under `clientAuth`, from one or two Secrets into a single mount. Defaults to `/etc/github-sts-tls`, a directory of its own rather than a path under the configuration mount above. |
 | `/tmp` | `emptyDir` | The root filesystem is read-only, so scratch space has to be a volume. |
 | Parent of `audit.filePath` | `emptyDir`, 100 MiB | Rendered only when `audit.fileEnabled` is true. Deleted with the pod, so ship the stream off-node if you need it to survive. |
 

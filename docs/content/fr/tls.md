@@ -10,15 +10,19 @@ Par défaut, le pod sert du HTTP en clair et quelque chose devant lui termine TL
 
 Le bloc `tls` couvre les déploiements où cela ne suffit pas :
 
-- le saut entre le proxy et le pod doit lui aussi être chiffré, parce qu'un maillage rechiffre le trafic vers les backends, parce qu'une `BackendTLSPolicy` Gateway API l'exige, ou parce qu'une exigence de conformité impose le chiffrement en transit partout
+- le saut entre le proxy et le pod doit lui aussi être chiffré, parce qu'un maillage rechiffre le trafic vers les backends, parce qu'une `BackendTLSPolicy` Gateway API l'exige, ou parce qu'un contrôle de sécurité impose le chiffrement en transit partout
 - rien ne se trouve devant le Service : le pod est alors le point de terminaison TLS
 - les clients doivent prouver leur identité avec un certificat, et pas seulement avec un jeton OIDC
 
 ## Prérequis
 
-Une image serveur qui prend en charge la section de configuration `server.tls`. Un serveur qui ignore cette section continue de servir du HTTP en clair alors que le chart a déjà pointé les sondes vers HTTPS : les pods échouent à la disponibilité et la release ne termine jamais son déploiement. Vérifiez la [Compatibilité]({{< relref "/integrations/compatibility" >}}) avant d'activer le bloc.
+Une image serveur qui prend en charge la section de configuration `server.tls`. Un serveur qui ignore cette section continue de servir du HTTP en clair alors que le chart a déjà pointé les sondes vers HTTPS : les pods échouent à la disponibilité et la release ne termine jamais son déploiement.
 
-Un certificat et une clé dans un Secret dont vous êtes propriétaire. Le chart ne génère jamais de certificat. Un Secret `kubernetes.io/tls` produit par cert-manager, par une PKI interne ou par `kubectl create secret tls` convient tel quel, puisque `tls.certKey` et `tls.keyKey` valent déjà `tls.crt` et `tls.key`. Un certificat auto-signé est un outil de test local : il force chaque client à faire confiance à une CA créée pour une seule charge de travail, soit l'inverse de ce à quoi sert un certificat.
+La prise en charge est arrivée après la version serveur `v0.0.3` et, à l'heure où ces lignes sont écrites, aucune version publiée ne l'embarque. `image.tag` vaut par défaut l'`appVersion` du chart : une installation par défaut tire donc une image sans `server.tls`. Renseignez `image.tag` avec une version qui en dispose. La page [Compatibilité]({{< relref "/integrations/compatibility" >}}) liste les combinaisons vérifiées.
+
+Une image assez récente pour `server.tls` l'est aussi pour exiger une valeur `bundle_enforcement` de premier niveau, que le chart ne génère pas. Fournissez-la via `extraEnv` comme décrit sous [Bundles de politiques]({{< relref "values#bundles-de-politiques" >}}), sinon le pod ne démarre pas, avant même que TLS entre en jeu.
+
+Un certificat et une clé dans un Secret dont vous êtes propriétaire. Le chart ne génère jamais de certificat. Un Secret `kubernetes.io/tls` produit par cert-manager, par une PKI interne ou par `kubectl create secret tls` convient tel quel, puisque `tls.certKey` et `tls.keyKey` valent déjà `tls.crt` et `tls.key`. Un certificat auto-signé est un outil de test local : il force chaque client à faire confiance à une CA créée pour une seule charge de travail, soit l'inverse de ce à quoi sert un certificat. La page [Tests TLS en local]({{< relref "/operations/tls-local-testing" >}}) couvre ce cas.
 
 ## Servir HTTPS depuis le pod
 
@@ -31,7 +35,7 @@ tls:
 
 Le chart refuse de rendre `tls.enabled: true` sans `tls.existingSecret`, plutôt que de démarrer un pod qui n'a aucun certificat à servir.
 
-Activer TLS change six choses :
+Activer TLS change cinq choses, et délibérément pas une sixième :
 
 | Quoi | Changement |
 |---|---|
@@ -42,7 +46,7 @@ Activer TLS change six choses :
 | Hooks `helm test` | Interrogent l'endpoint en HTTPS sans vérifier le certificat. |
 | Le proxy en amont | Rien. L'Ingress et la Gateway continuent d'envoyer du HTTP en clair tant que vous ne les configurez pas, ce qui est l'objet de la section suivante. |
 
-Le chemin de montage est voisin de `/etc/github-sts`, pas à l'intérieur. Le ConfigMap est monté en lecture seule sur `/etc/github-sts`, et un runtime de conteneur ne peut pas créer un point de montage à l'intérieur d'un montage en lecture seule : un chemin imbriqué échoue donc à la création du conteneur, avec une erreur de système de fichiers en lecture seule. Vous pouvez remplacer `tls.mountPath`, mais gardez-le hors de `/etc/github-sts`.
+Le chemin par défaut est un répertoire distinct plutôt qu'un sous-répertoire de `/etc/github-sts`, ce qui garde le matériel cryptographique séparé du montage de configuration et des montages de clés par app. Remplacez `tls.mountPath` par n'importe quel chemin que le conteneur n'utilise pas déjà.
 
 ### Renouveler sans redémarrage
 
@@ -107,7 +111,7 @@ Le serveur exige et vérifie un certificat client pour tout le listener. `/healt
 | Hooks `helm test` | Ne sont plus générés. Les Pods de hook n'ont aucun certificat, donc chaque vérification échouerait à la poignée de main. |
 | Prometheus | Rien d'automatique. Placez les identifiants clients dans `serviceMonitor.tlsConfig` ou `podMonitor.tlsConfig`, sinon la collecte échoue. |
 
-Le changement de sondes représente une vraie perte de signal. Une sonde `tcpSocket` prouve que le listener accepte les connexions, pas que `/ready` retourne 200 : un serveur démarré mais pas prêt reste donc dans les endpoints du Service. Un contrôle de disponibilité plus riche doit venir d'un appelant qui détient un certificat. `probes.mode: httpGet` rétablit les sondes HTTP, et n'est correct que si quelque chose d'autre termine le mTLS avant le conteneur.
+Le changement de sondes représente une vraie perte de signal. Une sonde `tcpSocket` prouve que le listener accepte les connexions, pas que `/ready` retourne 200 : un serveur démarré mais pas prêt reste donc dans les endpoints du Service. Un contrôle de disponibilité plus riche doit venir d'un appelant qui détient un certificat. `probes.mode: httpGet` rétablit les sondes HTTPS, qui échouent alors à la poignée de main comme tout autre client sans certificat. Ce réglage n'est correct que si quelque chose d'autre termine le mTLS devant le conteneur.
 
 ## Collecter les métriques en TLS
 
@@ -144,9 +148,9 @@ serviceMonitor:
 
 ## Choisir une version et des suites cryptographiques
 
-`tls.minVersion` accepte `"1.2"`, la valeur par défaut, et `"1.3"`. TLS 1.3 supprime toute négociation de suites et rejette les clients qui ne le parlent pas, dont l'image BusyBox exécutée par défaut par les hooks `helm test`.
+`tls.minVersion` accepte `"1.2"`, la valeur par défaut, et `"1.3"`. Sous TLS 1.3, les suites cryptographiques ne sont plus configurables, et les clients qui ne parlent pas 1.3 sont rejetés, dont l'image BusyBox exécutée par défaut par les hooks `helm test`.
 
-`tls.cipherSuites` est une liste blanche de noms IANA, valable uniquement pour TLS 1.2. Laissez-la vide et le serveur utilise les valeurs par défaut de Go, déjà limitées aux suites AEAD. La renseigner avec `minVersion: "1.3"` est une erreur de configuration que le serveur rejette au démarrage : le chart fait donc échouer le rendu.
+`tls.cipherSuites` est une liste d'autorisation de noms IANA, valable uniquement pour TLS 1.2. Laissez-la vide et le serveur utilise les valeurs par défaut de Go : échange de clés ECDHE partout, AES-GCM et ChaCha20-Poly1305 préférés, mais AES-CBC avec un MAC SHA-1 encore accepté si un client l'exige. Renseignez la liste lorsque ce dernier point ne vous convient pas. La renseigner avec `minVersion: "1.3"` est une erreur de configuration que le serveur rejette au démarrage : le chart fait donc échouer le rendu.
 
 ```yaml
 tls:
@@ -213,4 +217,5 @@ helm test github-sts --namespace github-sts
 - [Référence des valeurs]({{< relref "values" >}}) pour chaque valeur `tls` et son défaut
 - [Ressources générées]({{< relref "resources" >}}) pour les montages et les ports que ces valeurs modifient
 - [Réseau]({{< relref "networking" >}}) pour la route placée devant le Service
+- [Configuration]({{< relref "/reference/configuration" >}}) pour ce que le serveur fait du bloc `server.tls` écrit par ce chart
 - [Modèle de sécurité]({{< relref "/concepts/security-model" >}}) pour ce que le serveur authentifie par-dessus le transport
