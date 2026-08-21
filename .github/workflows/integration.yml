@@ -270,6 +270,8 @@ jobs:
             --set github.apps.default.appId=12345 \
             --set github.apps.default.existingSecret=github-app-dummy-credentials \
             --set image.pullPolicy=Never \
+            --set 'extraEnv[0].name=GITHUBSTS_BUNDLE_ENFORCEMENT' \
+            --set 'extraEnv[0].value=optional' \
             --set tls.enabled=true \
             --set tls.existingSecret=github-sts-tls \
             --set tls.reloadInterval=1h \
@@ -286,7 +288,10 @@ jobs:
           echo "$CONFIG" | grep -q 'cert_file: "/etc/github-sts-tls/tls.crt"'
           echo "$CONFIG" | grep -q 'key_file: "/etc/github-sts-tls/tls.key"'
           echo "$CONFIG" | grep -q 'reload_interval: "1h"'
-          ! echo "$CONFIG" | grep -q 'client_ca_file'
+          if echo "$CONFIG" | grep -q 'client_ca_file'; then
+            echo "::error::TLS-only config unexpectedly requires a client certificate"
+            exit 1
+          fi
 
           SCHEME=$(kubectl -n "$NS" get deployment github-sts -o jsonpath='{.spec.template.spec.containers[0].readinessProbe.httpGet.scheme}')
           PORT_NAME=$(kubectl -n "$NS" get service github-sts -o jsonpath='{.spec.ports[0].name}')
@@ -339,6 +344,8 @@ jobs:
             --set github.apps.default.appId=12345 \
             --set github.apps.default.existingSecret=github-app-dummy-credentials \
             --set image.pullPolicy=Never \
+            --set 'extraEnv[0].name=GITHUBSTS_BUNDLE_ENFORCEMENT' \
+            --set 'extraEnv[0].value=optional' \
             --set tls.enabled=true \
             --set tls.existingSecret=github-sts-tls \
             --set tls.clientAuth.enabled=true \
