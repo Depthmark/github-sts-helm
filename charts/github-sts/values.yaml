@@ -328,6 +328,29 @@ policy:
   # -- Cache TTL (Go duration string, e.g. "60s", "5m")
   cacheTtl: "60s"
 
+# Enterprise Rego/OPA policy bundles
+# -- Signed Rego/OPA bundles evaluated after the YAML trust policy allows and
+# before a GitHub installation token is minted. Entries are passed through to
+# the server's top-level `bundles:` config without validation or renaming, so
+# use the server's snake_case field names. Requires a server build with bundle
+# support: v0.0.3 ignores the key silently and runs with no Rego layer. Such a
+# build also requires a top-level `bundle_enforcement` value, which this chart
+# does not render; set `GITHUBSTS_BUNDLE_ENFORCEMENT` through `extraEnv`. For a
+# local file ref, `registry.auth.password_file`, or `cosign.public_key_ref`,
+# mount the file with `extraVolumes` and `extraVolumeMounts` and point the
+# field at the mounted path.
+bundles: []
+  # - name: enterprise-baseline
+  #   apps: []
+  #   ref: oci://ghcr.io/example/github-sts-policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  #   expected_policy_revision: "42"
+  #   poll_interval: 5m
+  #   max_staleness: 10m
+  #   fail_mode: closed
+  #   cosign:
+  #     certificate_identity_regexp: '^https://github\.com/example/github-sts-policy/\.github/workflows/release\.yml@refs/heads/main$'
+  #     certificate_oidc_issuer: https://token.actions.githubusercontent.com
+
 # OIDC configuration
 oidc:
   # -- Allowed OIDC token issuers

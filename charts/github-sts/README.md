@@ -103,6 +103,43 @@ permissions:
 
 See the [upstream documentation](https://github.com/Depthmark/github-sts#trust-policies) for full policy schema and examples.
 
+## Enterprise Rego Bundles
+
+Set `bundles` to configure signed OPA/Rego bundles. Bundles are evaluated after the YAML trust policy allows and before GitHub token minting, and a deny wins across all applicable bundles.
+
+Bundle support is newer than the server release this chart's `appVersion` pins. Server v0.0.3 parses its config leniently: it ignores `bundles:`, starts, and serves exchanges with no Rego layer. Move `image.tag` or `image.digest` to a build with bundle support first.
+
+A build that supports bundles also requires a top-level `bundle_enforcement` value (`required` or `optional`) and refuses to start without one. This chart does not render that key; supply it through `extraEnv`:
+
+```yaml
+extraEnv:
+  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
+    value: required
+```
+
+```yaml
+bundles:
+  - name: enterprise-baseline
+    apps: []
+    ref: oci://ghcr.io/example/github-sts-policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+    expected_policy_revision: "42"
+    poll_interval: 5m
+    max_staleness: 10m
+    fail_mode: closed
+    registry:
+      auth:
+        mode: basic
+        username: robot$github-sts
+        password_file: /var/run/secrets/bundle/registry-password
+    cosign:
+      certificate_identity_regexp: '^https://github\.com/example/github-sts-policy/\.github/workflows/release\.yml@refs/heads/main$'
+      certificate_oidc_issuer: https://token.actions.githubusercontent.com
+```
+
+Registry auth is separate from cosign verification. For `registry.auth.password_file`, local file bundle refs, or `cosign.public_key_ref`, mount files with `extraVolumes` and `extraVolumeMounts` and point `password_file`, `ref`, or `public_key_ref` at the mounted path.
+
+Required mode constrains the entries further, including digest pinning and the signed revision each entry must declare. See the [upstream configuration reference](https://github.com/Depthmark/github-sts#configuration) for those rules.
+
 ## GitHub Actions Usage
 
 ```yaml
@@ -146,6 +183,7 @@ jobs:
 | autoscaling.maxReplicas | int | `10` | Maximum number of replicas |
 | autoscaling.minReplicas | int | `2` | Minimum number of replicas |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` | Target CPU utilization percentage |
+| bundles | list | `[]` | Signed Rego/OPA bundles evaluated after the YAML trust policy allows and before a GitHub installation token is minted. Entries are passed through to the server's top-level `bundles:` config without validation or renaming, so use the server's snake_case field names. Requires a server build with bundle support: v0.0.3 ignores the key silently and runs with no Rego layer. Such a build also requires a top-level `bundle_enforcement` value, which this chart does not render; set `GITHUBSTS_BUNDLE_ENFORCEMENT` through `extraEnv`. For a local file ref, `registry.auth.password_file`, or `cosign.public_key_ref`, mount the file with `extraVolumes` and `extraVolumeMounts` and point the field at the mounted path. |
 | commonLabels | object | `{}` | Labels to add to all deployed objects |
 | extraEnv | list | `[]` | Extra environment variables |
 | extraVolumeMounts | list | `[]` | Extra volume mounts for the container |

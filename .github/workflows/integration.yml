@@ -77,6 +77,8 @@ jobs:
             --set github.apps.default.appId=12345 \
             --set github.apps.default.existingSecret=github-app-dummy-credentials \
             --set image.pullPolicy=Never \
+            --set 'extraEnv[0].name=GITHUBSTS_BUNDLE_ENFORCEMENT' \
+            --set 'extraEnv[0].value=optional' \
             --wait \
             --timeout 120s
 

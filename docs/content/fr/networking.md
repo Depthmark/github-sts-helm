@@ -64,6 +64,8 @@ Les deux ne concernent que les pods de ce chart, et suivent la même structure :
 
 Le serveur a besoin de joindre deux types de destination : l'API GitHub, et le point d'entrée JWKS de chaque émetteur listé dans `oidc.allowedIssuers`. En oublier un fait échouer les échanges sur une erreur de connexion plutôt que sur un refus de politique, ce qui est bien plus difficile à interpréter pendant un incident.
 
+Une entrée `bundles` ajoute une troisième destination : l'hôte visé par son `ref`. Le chart ne déduit pas cet hôte : ajoutez-le à `fqdns` côté Cilium, ou à `cidrs` côté natif. La réaction du serveur à un bundle qu'il ne parvient pas à récupérer est fixée par le champ `fail_mode` de l'entrée, et non par la politique réseau.
+
 ### NetworkPolicy native
 
 Fonctionne sur tout CNI implémentant `networking.k8s.io/v1`. Cette API ne sait pas filtrer une destination par nom d'hôte : les destinations externes sont donc des plages CIDR que vous maintenez.
