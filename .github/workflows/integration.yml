@@ -40,7 +40,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Helm
-        uses: azure/setup-helm@dda3372f752e03dde6b3237bc9431cdc2f7a02a2 # v5.0.0
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
 
       - name: Create Kind cluster
         uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
@@ -133,12 +133,56 @@ jobs:
 
       - name: Collect debug info on failure
         if: failure()
+        env:
+          NS: github-sts-test
+          SELECTOR: app.kubernetes.io/name=github-sts
         run: |
-          echo "=== Pods ==="
-          kubectl -n github-sts-test get pods -o wide
-          echo "=== Pod Describe ==="
-          kubectl -n github-sts-test describe pods -l app.kubernetes.io/name=github-sts
-          echo "=== Pod Logs ==="
-          kubectl -n github-sts-test logs -l app.kubernetes.io/name=github-sts --tail=100
-          echo "=== Events ==="
-          kubectl -n github-sts-test get events --sort-by=.lastTimestamp
+          reason=$(kubectl -n "$NS" get pods -l "$SELECTOR" \
+            -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.reason}')
+          exit_code=$(kubectl -n "$NS" get pods -l "$SELECTOR" \
+            -o jsonpath='{.items[0].status.containerStatuses[0].lastState.terminated.exitCode}')
+          cause=$(kubectl -n "$NS" logs -l "$SELECTOR" --previous --tail=20 2>/dev/null \
+            | grep -iE 'error|fatal|panic' | tail -1)
+          if [ -n "$cause" ]; then
+            echo "::error::Container exited (${reason:-unknown}, exit ${exit_code:-?}): ${cause}"
+          elif [ -n "$reason" ]; then
+            echo "::error::Container exited (${reason}, exit ${exit_code:-?}); see the logs below"
+          fi
+
+          echo "::group::Pod status"
+          kubectl -n "$NS" get pods -o wide
+          kubectl -n "$NS" get pods -l "$SELECTOR" -o jsonpath='{range .items[*]}{.metadata.name}{"  waiting="}{.status.containerStatuses[0].state.waiting.reason}{"  lastTerminated="}{.status.containerStatuses[0].lastState.terminated.reason}{"  restarts="}{.status.containerStatuses[0].restartCount}{"\n"}{end}'
+          echo "::endgroup::"
+
+          # The crashed container's own output. Both are printed because which
+          # one carries the cause depends on where in the restart loop we are.
+          echo "::group::Logs (previous container)"
+          kubectl -n "$NS" logs -l "$SELECTOR" --previous --tail=100 --prefix 2>&1
+          echo "::endgroup::"
+
+          echo "::group::Logs (current container)"
+          kubectl -n "$NS" logs -l "$SELECTOR" --tail=100 --prefix --all-containers 2>&1
+          echo "::endgroup::"
+
+          # The rendered server configuration. A chart that has drifted from
+          # the server it deploys fails here, not in the templates, so this is
+          # printed on every failure rather than only in the verify step.
+          echo "::group::Rendered server configuration"
+          kubectl -n "$NS" get configmap github-sts-config -o jsonpath='{.data.config\.yaml}'
+          echo "::endgroup::"
+
+          echo "::group::Warning events"
+          kubectl -n "$NS" get events --field-selector type=Warning --sort-by=.lastTimestamp
+          echo "::endgroup::"
+
+          echo "::group::Pod describe"
+          kubectl -n "$NS" describe pods -l "$SELECTOR"
+          echo "::endgroup::"
+
+          echo "::group::Helm release"
+          helm status github-sts -n "$NS"
+          echo "::endgroup::"
+
+          echo "::group::All events"
+          kubectl -n "$NS" get events --sort-by=.lastTimestamp
+          echo "::endgroup::"

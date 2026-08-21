@@ -155,6 +155,7 @@ jobs:
         run: gh issue list
 ```
 
+<!-- values:begin -->
 ## Values
 
 | Key | Type | Default | Description |
@@ -293,6 +294,7 @@ jobs:
 | terminationGracePeriodSeconds | int | `30` | Pod terminationGracePeriodSeconds. Time the kubelet waits between SIGTERM and SIGKILL during pod shutdown. Must comfortably exceed `server.shutdownTimeout` (default 10s) plus probe drain time so in-flight `/sts/exchange` requests can complete before the container is killed. Setting this too low drops connections during rolling updates and node drains; setting it very high slows down voluntary disruptions but does not affect normal pod startup. |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
+<!-- values:end -->
 
 ## Ingress & Routing
 
