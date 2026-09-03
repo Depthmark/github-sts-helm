@@ -47,6 +47,28 @@ WARNING: No GitHub Apps configured!
           existingSecret: "my-github-app-credentials"
 {{- end }}
 
+{{- if include "github-sts.hasPooledApp" . }}
+
+App pools are configured:
+{{- range $appName, $app := .Values.github.apps }}
+{{- if $app.instances }}
+{{- $strategy := (($app.rotation | default dict).strategy) | default "round_robin" }}
+  - {{ $appName }}: {{ len $app.instances }} GitHub App instance(s), rotation
+    strategy "{{ $strategy }}"
+{{- if eq $strategy "rate_limit_aware" }}
+    NOTE: rate_limit_aware is accepted but not yet implemented server-side; this
+    pool behaves like round_robin and the server logs a warning at startup.
+{{- end }}
+{{- end }}
+{{- end }}
+  Every instance in a pool must be installed with identical permissions and
+  repository access. A mismatched instance surfaces only as intermittent 422s.
+  Requires a server image with app-pool support; an older image ignores
+  instances: and starts with no credentials for that app.
+  Alert on githubsts_app_pool_exhausted_total: it fires when every instance in
+  a pool failed one request.
+{{- end }}
+
 {{- if .Values.serviceMonitor.enabled }}
 
 Prometheus ServiceMonitor is enabled. Metrics will be scraped from {{ .Values.serviceMonitor.path }}.

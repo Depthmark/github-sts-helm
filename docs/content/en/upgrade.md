@@ -65,6 +65,33 @@ kubectl rollout restart deployment/github-sts --namespace github-sts
 
 Updating the Secret alone does not restart anything, and the server holds the key it read at startup. The restart is what puts the new key in use. Generate the new key in GitHub and let both keys work before you delete the old one, so a pod that has not rolled yet keeps functioning.
 
+## Convert an app to a pool
+
+Moving an entry from a single GitHub App to `instances` replaces `appId` and `existingSecret` with a list, so it is an edit to one entry rather than an addition:
+
+```yaml
+github:
+  apps:
+    checkout:
+      instances:
+        - name: checkout-1
+          appId: "111111"          # the App this entry already used
+          existingSecret: github-sts-checkout-1
+        - name: checkout-2
+          appId: "222222"          # newly registered and installed
+          existingSecret: github-sts-checkout-2
+```
+
+Three things to know before running it.
+
+The server image has to support pools. An older image ignores `instances:` and then has no credentials for that app, which turns every exchange for it into a failure. Move `image.tag` or `image.digest` first, verify, then change the values.
+
+Registering a second GitHub App is not enough on its own — install it on the same repositories, with the same permissions, as the one already in use. The server treats pool members as interchangeable and does not verify that they are.
+
+Metrics gain an `instance` label. Every GitHub App, rate-limit, and reachability series is now per-instance, including for apps you left as a single App, which counts as a pool of one. Dashboards and alerts that aggregate across those series need a `sum by (app)` or the equivalent before the upgrade, or they will start showing one series per instance. `githubsts_app_pool_exhausted_total` is the signal to alert on: it increments when every instance in a pool failed one request.
+
+Keep the old App installed until the pool has served traffic. Rolling back is a `helm rollback`, which restores the previous entry and its mount, but only works if the App it names is still installed.
+
 ## Roll back
 
 ```bash

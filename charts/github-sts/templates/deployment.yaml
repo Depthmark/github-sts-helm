@@ -1,4 +1,5 @@
 {{- include "github-sts.validateTls" . -}}
+{{- include "github-sts.validateApps" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -143,12 +144,32 @@ spec:
         {{- toYaml . | nindent 8 }}
         {{- end }}
         {{- range $appName, $appConfig := .Values.github.apps }}
+        {{- $instances := include "github-sts.appInstances" (dict "name" $appName "app" $appConfig) | fromYamlArray }}
         - name: github-app-{{ $appName }}-key
+          {{- if $appConfig.instances }}
+          {{- /* Projected rather than a Secret volume: a pool's instances each
+          hold their key in their own Secret, and every member has to land under
+          the single mount the app already owns. Each instance gets an
+          `<appId>/` subdirectory, so two instances can reuse the same key name
+          without colliding. */}}
+          projected:
+            sources:
+              {{- range $instances }}
+              - secret:
+                  name: {{ .existingSecret }}
+                  items:
+                    - key: {{ .secretKey }}
+                      path: {{ .relPath }}
+              {{- end }}
+          {{- else }}
+          {{- range $instances }}
           secret:
-            secretName: {{ $appConfig.existingSecret }}
+            secretName: {{ .existingSecret }}
             items:
-              - key: {{ $appConfig.secretPrivateKeyKey | default "github-app-private-key" }}
-                path: {{ $appConfig.secretPrivateKeyKey | default "github-app-private-key" }}
+              - key: {{ .secretKey }}
+                path: {{ .relPath }}
+          {{- end }}
+          {{- end }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

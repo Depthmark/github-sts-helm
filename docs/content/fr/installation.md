@@ -67,6 +67,54 @@ Le chart monte chaque clé sur `/etc/github-sts/apps/{app}/{key}` et écrit le `
 
 Le nom de l'app fait partie du chemin de la politique de confiance. Avec les valeurs ci-dessus, un client envoyant `app=release&identity=deploy` résout la politique `.github/sts/release/deploy.sts.yaml` dans le dépôt cible. `orgPolicyRepo` permet à l'App `release` de se rabattre sur une politique stockée centralement dans le dépôt `.github` de l'organisation ; voir [Politiques de confiance]({{< relref "/concepts/trust-policies" >}}) pour l'ordre de résolution.
 
+`policyResolution` détermine quel côté l'emporte lorsque les deux dépôts déclarent la même identité. Sa valeur par défaut est `org_first` : la copie de l'organisation est lue en premier et le dépôt à l'origine de la requête ne sert que de repli. Utilisez `org_only` pour ne plus lire du tout le dépôt à l'origine de la requête, ou `repo_first` pour l'ordre historique, qui laisse un dépôt contourner la politique centrale :
+
+```yaml
+github:
+  apps:
+    release:
+      appId: "654321"
+      existingSecret: github-sts-release-app
+      orgPolicyRepo: .github
+      policyResolution: org_only
+```
+
+Le mode n'a de sens qu'avec `orgPolicyRepo` : le chart refuse donc `org_first` et `org_only` en son absence, plutôt que de laisser le serveur rejeter la configuration une fois la mise à jour réussie. [Référence des valeurs]({{< relref "values" >}}) documente les trois modes.
+
+### Regrouper plusieurs GitHub Apps sous un seul nom
+
+Plusieurs GitHub Apps peuvent être adossées à un seul nom d'app. Chacune dispose de son propre quota de limitation de débit principal : le plafond d'échanges pour ce nom augmente donc avec le nombre d'instances, et le serveur bascule vers une autre instance lorsque celle qu'il a essayée est limitée ou injoignable. Les clients ne changent rien : ils continuent d'envoyer le seul nom dans `app=`.
+
+```bash
+kubectl create secret generic github-sts-checkout-1 \
+  --namespace github-sts \
+  --from-file=github-app-private-key=./checkout-1.private-key.pem
+
+kubectl create secret generic github-sts-checkout-2 \
+  --namespace github-sts \
+  --from-file=github-app-private-key=./checkout-2.private-key.pem
+```
+
+```yaml
+github:
+  apps:
+    checkout:
+      orgPolicyRepo: .github
+      instances:
+        - name: checkout-1
+          appId: "111111"
+          existingSecret: github-sts-checkout-1
+        - name: checkout-2
+          appId: "222222"
+          existingSecret: github-sts-checkout-2
+```
+
+`instances` et `appId` sont exclusifs sur une même entrée, et le chart échoue au rendu plutôt que de laisser une entrée ambiguë atteindre le cluster. Les clés arrivent sur `/etc/github-sts/apps/checkout/{appId}/{key}`, un sous-répertoire par instance, projetées depuis le Secret propre à chaque instance vers le montage unique que l'app possède déjà.
+
+Enregistrez chaque instance comme une GitHub App distincte et installez-les toutes avec les mêmes permissions et le même accès aux dépôts. Le serveur choisit librement entre elles et ne vérifie pas qu'elles correspondent : une instance installée sur moins de dépôts produit des réponses `422` sur la part des requêtes qu'elle sert.
+
+Cette forme exige une image serveur qui comprend `apps.<name>.instances`. Une image plus ancienne ignore la clé et démarre sans identifiants pour cette app. Consultez [Compatibilité]({{< relref "/integrations/compatibility" >}}) avant de convertir une entrée, et [Configuration]({{< relref "/reference/configuration" >}}) pour les règles de sélection et de bascule, y compris `rotation`.
+
 ### Nommer la clé dans le Secret
 
 `secretPrivateKeyKey` remplace le nom de clé par défaut, ce qui est utile lorsque le Secret est géré par un opérateur de secrets externes qui impose sa propre organisation.

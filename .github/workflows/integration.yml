@@ -189,6 +189,167 @@ jobs:
           kubectl -n "$NS" get events --sort-by=.lastTimestamp
           echo "::endgroup::"
 
+  kind-integration-pool:
+    name: Kind Integration Test (App Pools)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NS: github-sts-pool-test
+    steps:
+      - name: Checkout helm chart
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout github-sts source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Depthmark/github-sts
+          path: github-sts-src
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc # v1.14.0
+        with:
+          cluster_name: github-sts-pool-test
+
+      - name: Read appVersion from Chart.yaml
+        id: chart
+        run: |
+          APP_VERSION=$(grep '^appVersion:' charts/github-sts/Chart.yaml | awk '{print $2}')
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and load image into Kind
+        run: |
+          docker build -t ghcr.io/depthmark/github-sts:${{ steps.chart.outputs.app_version }} github-sts-src/
+          kind load docker-image ghcr.io/depthmark/github-sts:${{ steps.chart.outputs.app_version }} --name github-sts-pool-test
+
+      - name: Create namespace and one Secret per pool instance
+        run: |
+          # A distinct key per instance, so a mount that projected the wrong
+          # Secret would produce a different key than the one the server
+          # expects rather than an identical copy.
+          for n in default checkout-1 checkout-2 checkout-3 release-1 release-2; do
+            openssl genrsa 2048 > "/tmp/${n}.pem"
+          done
+
+          kubectl create namespace "$NS"
+
+          kubectl create secret generic github-app-default-credentials --namespace "$NS" \
+            --from-file=github-app-private-key=/tmp/default.pem
+          kubectl create secret generic checkout-1-credentials --namespace "$NS" \
+            --from-file=github-app-private-key=/tmp/checkout-1.pem
+          # Non-default key name, matching ci/app-pool-values.yaml.
+          kubectl create secret generic checkout-2-credentials --namespace "$NS" \
+            --from-file=private-key.pem=/tmp/checkout-2.pem
+          kubectl create secret generic checkout-3-credentials --namespace "$NS" \
+            --from-file=github-app-private-key=/tmp/checkout-3.pem
+          kubectl create secret generic release-1-credentials --namespace "$NS" \
+            --from-file=github-app-private-key=/tmp/release-1.pem
+          kubectl create secret generic release-2-credentials --namespace "$NS" \
+            --from-file=github-app-private-key=/tmp/release-2.pem
+
+      - name: Install chart with pooled apps
+        run: |
+          # Reuses the CI values file the lint job renders, so the two cannot
+          # drift. Reaching Ready is itself the assertion that every pool
+          # member's key mounted: the projected volume blocks the pod on a
+          # missing Secret or key, and the server parses every private key at
+          # startup, so a mis-projected path is a CrashLoopBackOff, not a
+          # silent degradation.
+          helm install github-sts charts/github-sts \
+            --namespace "$NS" \
+            --values charts/github-sts/ci/app-pool-values.yaml \
+            --set image.pullPolicy=Never \
+            --set 'extraEnv[0].name=GITHUBSTS_BUNDLE_ENFORCEMENT' \
+            --set 'extraEnv[0].value=optional' \
+            --wait \
+            --timeout 120s
+
+      - name: Verify deployment is running
+        run: |
+          kubectl -n "$NS" rollout status deployment/github-sts --timeout=60s
+
+      - name: Verify pooled configuration in the ConfigMap
+        run: |
+          CONFIG=$(kubectl -n "$NS" get configmap github-sts-config -o jsonpath='{.data.config\.yaml}')
+          echo "$CONFIG"
+          echo "$CONFIG" | grep -q 'private_key_path: "/etc/github-sts/apps/checkout/111111/github-app-private-key"'
+          echo "$CONFIG" | grep -q 'private_key_path: "/etc/github-sts/apps/checkout/222222/private-key.pem"'
+          echo "$CONFIG" | grep -q 'private_key_path: "/etc/github-sts/apps/checkout/333333/github-app-private-key"'
+          echo "$CONFIG" | grep -q 'private_key_path: "/etc/github-sts/apps/default/github-app-private-key"'
+          echo "$CONFIG" | grep -q 'strategy: "round_robin"'
+          echo "$CONFIG" | grep -q 'max_attempts: 2'
+          # policy_resolution is app-level, so it has to survive the pooled
+          # branch of the apps loop as well as the flat one.
+          echo "$CONFIG" | grep -q 'policy_resolution: "org_only"'
+          echo "Pooled ConfigMap validation passed"
+
+      - name: Verify one mount per app, shared by that app's instances
+        run: |
+          POD=$(kubectl -n "$NS" get pod -l app.kubernetes.io/name=github-sts -o jsonpath='{.items[0].metadata.name}')
+          MOUNTS=$(kubectl -n "$NS" get pod "$POD" -o jsonpath='{.spec.containers[0].volumeMounts[*].mountPath}')
+          echo "$MOUNTS"
+          echo "$MOUNTS" | grep -q '/etc/github-sts/apps/checkout'
+          echo "$MOUNTS" | grep -q '/etc/github-sts/apps/release'
+          echo "$MOUNTS" | grep -q '/etc/github-sts/apps/default'
+          SOURCES=$(kubectl -n "$NS" get pod "$POD" \
+            -o jsonpath='{.spec.volumes[?(@.name=="github-app-checkout-key")].projected.sources[*].secret.name}')
+          echo "checkout sources: ${SOURCES}"
+          [ "$SOURCES" = "checkout-1-credentials checkout-2-credentials checkout-3-credentials" ]
+          echo "Pooled volume projection verified"
+
+      - name: Verify the server reports pool sizes on /metrics
+        run: |
+          # The server only emits these once it has built each pool from the
+          # keys it parsed, so this is the end-to-end check that the chart's
+          # rendering and the server's expectations still agree.
+          kubectl -n "$NS" port-forward svc/github-sts 18080:8080 &
+          PF_PID=$!
+          trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 15); do
+            curl -fsS http://127.0.0.1:18080/metrics -o /tmp/metrics.txt && break
+            sleep 2
+          done
+          grep 'githubsts_app_pool_instances' /tmp/metrics.txt
+          grep -q 'githubsts_app_pool_instances{app="checkout"} 3' /tmp/metrics.txt
+          grep -q 'githubsts_app_pool_instances{app="release"} 2' /tmp/metrics.txt
+          grep -q 'githubsts_app_pool_instances{app="default"} 1' /tmp/metrics.txt
+          echo "Pool metrics verified"
+
+      - name: Collect debug info on failure
+        if: failure()
+        env:
+          SELECTOR: app.kubernetes.io/name=github-sts
+        run: |
+          echo "::group::Pod status"
+          kubectl -n "$NS" get pods -o wide
+          echo "::endgroup::"
+
+          echo "::group::Logs (current container)"
+          kubectl -n "$NS" logs -l "$SELECTOR" --tail=100 --prefix --all-containers 2>&1
+          echo "::endgroup::"
+
+          echo "::group::Logs (previous container)"
+          kubectl -n "$NS" logs -l "$SELECTOR" --previous --tail=100 --prefix 2>&1
+          echo "::endgroup::"
+
+          echo "::group::Rendered server configuration"
+          kubectl -n "$NS" get configmap github-sts-config -o jsonpath='{.data.config\.yaml}'
+          echo "::endgroup::"
+
+          echo "::group::Pod describe"
+          kubectl -n "$NS" describe pods -l "$SELECTOR"
+          echo "::endgroup::"
+
+          echo "::group::Warning events"
+          kubectl -n "$NS" get events --field-selector type=Warning --sort-by=.lastTimestamp
+          echo "::endgroup::"
+
   kind-integration-tls:
     name: Kind Integration Test (TLS / mTLS)
     runs-on: ubuntu-latest

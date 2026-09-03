@@ -410,3 +410,96 @@ tests:
       - matchRegex:
           path: data["config.yaml"]
           pattern: "app_id: 67890"
+
+  # -------------------------------------------------------------------------
+  # Policy resolution
+  # -------------------------------------------------------------------------
+  - it: should include policy_resolution when set
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          orgPolicyRepo: ".github"
+          policyResolution: "org_only"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'policy_resolution: "org_only"'
+
+  - it: should not include policy_resolution when not set
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          orgPolicyRepo: ".github"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "policy_resolution"
+
+  - it: should render policy_resolution on a pooled app
+    set:
+      github.apps:
+        checkout:
+          orgPolicyRepo: ".github"
+          policyResolution: "org_first"
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+            - appId: 222222
+              existingSecret: "checkout-2-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'policy_resolution: "org_first"'
+
+  - it: should allow repo_first without an org policy repo
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          policyResolution: "repo_first"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'policy_resolution: "repo_first"'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "org_policy_repo"
+
+  - it: should fail on org_first without an org policy repo
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          policyResolution: "org_first"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'policyResolution "org_first" requires orgPolicyRepo'
+
+  - it: should fail on org_only without an org policy repo
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          policyResolution: "org_only"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'policyResolution "org_only" requires orgPolicyRepo'
+
+  - it: should fail on an unknown policy resolution mode
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "my-secret"
+          orgPolicyRepo: ".github"
+          policyResolution: "org_last"
+    asserts:
+      - failedTemplate:
+          errorPattern: "policyResolution must be one of org_first, repo_first, org_only"

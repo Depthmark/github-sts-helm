@@ -1,4 +1,5 @@
 {{- include "github-sts.validateTls" . -}}
+{{- include "github-sts.validateApps" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -36,11 +37,41 @@ data:
     {{- if .Values.github.apps }}
     apps:
       {{- range $appName, $appConfig := .Values.github.apps }}
+      {{- $instances := include "github-sts.appInstances" (dict "name" $appName "app" $appConfig) | fromYamlArray }}
       {{ $appName }}:
-        app_id: {{ $appConfig.appId | int }}
-        private_key_path: {{ printf "/etc/github-sts/apps/%s/%s" $appName ($appConfig.secretPrivateKeyKey | default "github-app-private-key") | quote }}
+        {{- if $appConfig.instances }}
+        {{- /* Pooled app: one physical GitHub App per instance, each with its
+        own rate-limit bucket. The server round-robins across them and fails
+        over on a retryable error. */}}
+        instances:
+          {{- range $instances }}
+          - name: {{ .name | quote }}
+            app_id: {{ .appId | int64 }}
+            private_key_path: {{ .keyPath | quote }}
+          {{- end }}
+        {{- with $appConfig.rotation }}
+        rotation:
+          {{- with .strategy }}
+          strategy: {{ . | quote }}
+          {{- end }}
+          {{- with .minRemainingPct }}
+          min_remaining_pct: {{ . }}
+          {{- end }}
+          {{- with .maxAttempts }}
+          max_attempts: {{ . | int64 }}
+          {{- end }}
+        {{- end }}
+        {{- else }}
+        {{- range $instances }}
+        app_id: {{ .appId | int64 }}
+        private_key_path: {{ .keyPath | quote }}
+        {{- end }}
+        {{- end }}
         {{- if $appConfig.orgPolicyRepo }}
         org_policy_repo: {{ $appConfig.orgPolicyRepo | quote }}
+        {{- end }}
+        {{- with $appConfig.policyResolution }}
+        policy_resolution: {{ . | quote }}
         {{- end }}
       {{- end }}
     {{- end }}

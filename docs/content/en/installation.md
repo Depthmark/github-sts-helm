@@ -66,6 +66,54 @@ The chart mounts each key at `/etc/github-sts/apps/{app}/{key}` and writes a mat
 
 The app name is part of the trust policy path. With the values above, a client sending `app=release&identity=deploy` resolves the policy at `.github/sts/release/deploy.sts.yaml` in the target repository. `orgPolicyRepo` lets the `release` App fall back to a policy stored centrally in the organization's `.github` repository; see [Trust Policies]({{< relref "/concepts/trust-policies" >}}) for the resolution order.
 
+`policyResolution` picks which side wins when both repositories define the same identity. It defaults to `org_first`, where the organization's copy is read first and the requesting repository is only a fallback. Set `org_only` to stop reading the requesting repository at all, or `repo_first` for the legacy order that lets a repository override central policy:
+
+```yaml
+github:
+  apps:
+    release:
+      appId: "654321"
+      existingSecret: github-sts-release-app
+      orgPolicyRepo: .github
+      policyResolution: org_only
+```
+
+The mode only means something with `orgPolicyRepo` set, so the chart refuses `org_first` or `org_only` without one instead of letting the server reject the config after the upgrade succeeds. [Values Reference]({{< relref "values" >}}) documents all three modes.
+
+### Pool several GitHub Apps behind one name
+
+Several GitHub Apps can back a single app name. Each one has its own primary rate-limit budget, so the ceiling on exchanges for that name scales with the number of instances, and the server fails over to another instance when the one it tried is rate-limited or unreachable. Clients are unaffected: they keep sending the one name in `app=`.
+
+```bash
+kubectl create secret generic github-sts-checkout-1 \
+  --namespace github-sts \
+  --from-file=github-app-private-key=./checkout-1.private-key.pem
+
+kubectl create secret generic github-sts-checkout-2 \
+  --namespace github-sts \
+  --from-file=github-app-private-key=./checkout-2.private-key.pem
+```
+
+```yaml
+github:
+  apps:
+    checkout:
+      orgPolicyRepo: .github
+      instances:
+        - name: checkout-1
+          appId: "111111"
+          existingSecret: github-sts-checkout-1
+        - name: checkout-2
+          appId: "222222"
+          existingSecret: github-sts-checkout-2
+```
+
+`instances` and `appId` are mutually exclusive on one entry, and the chart fails the render rather than letting an ambiguous entry reach the cluster. The keys land at `/etc/github-sts/apps/checkout/{appId}/{key}`, one subdirectory per instance, projected from each instance's own Secret into the single mount the app already owns.
+
+Register every instance as a separate GitHub App and install each one with the same permissions and repository access. The server picks between them freely and does not check that they match, so an instance installed on fewer repositories produces `422` responses on the share of requests it happens to serve.
+
+This form needs a server image that understands `apps.<name>.instances`. An older image ignores the key and starts with no credentials for that app. Check [Compatibility]({{< relref "/integrations/compatibility" >}}) before converting an entry, and see [Configuration]({{< relref "/reference/configuration" >}}) for the selection and failover rules, including `rotation`.
+
 ### Name the key inside the Secret
 
 `secretPrivateKeyKey` overrides the default key name, which is useful when the Secret is managed by an external secrets operator that dictates its own layout.

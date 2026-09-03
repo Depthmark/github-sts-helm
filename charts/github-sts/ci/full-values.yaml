@@ -102,9 +102,11 @@ github:
       appId: 12345
       existingSecret: "github-app-default-credentials"
       orgPolicyRepo: ".github"
+      policyResolution: "org_first"
     deploy-bot:
       appId: 67890
       existingSecret: "deploy-bot-credentials"
+      policyResolution: "repo_first"
 
 extraEnv:
   - name: LOG_FORMAT
