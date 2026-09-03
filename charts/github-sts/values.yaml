@@ -529,7 +529,9 @@ metrics:
   enabled: true
   # -- DEPRECATED, removed in a future chart release. Use
   # `endpointAuth.metricsToken`, which keeps the token out of the ConfigMap.
-  # Setting both is rejected at render time.
+  # Combining it with `endpointAuth.metricsToken` or
+  # `endpointAuth.existingSecret` is rejected at render time, because the
+  # deprecated value would otherwise be discarded without warning.
   authToken: ""
   # Rate limit polling configuration
   rateLimitPoll:

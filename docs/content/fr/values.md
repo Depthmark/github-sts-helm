@@ -275,7 +275,7 @@ Un `emptyDir` est supprimé avec le pod. Exportez le flux d'audit hors du nœud 
 
 | Valeur | Défaut | Effet |
 |---|---|---|
-| `endpointAuth.existingSecret` | `""` | Secret existant dans le namespace de la release qui contient les jetons des points d'entrée. Lorsqu'il est renseigné, le chart ne crée pas de Secret d'authentification et ignore les valeurs de jeton en ligne. Réglez `probes.mode` sur `tcpSocket` lorsque la sonde de vivacité est active, car le chart ne peut pas lire un Secret externe pour construire l'en-tête d'une sonde HTTP. |
+| `endpointAuth.existingSecret` | `""` | Secret existant dans le namespace de la release qui contient les jetons des points d'entrée. Lorsqu'il est renseigné, le chart ne crée pas de Secret d'authentification et ignore `endpointAuth.healthToken` et `endpointAuth.metricsToken`. Le combiner avec `metrics.authToken`, obsolète, fait échouer le rendu plutôt que d'abandonner ce jeton en silence. Réglez `probes.mode` sur `tcpSocket` lorsque la sonde de vivacité est active, car le chart ne peut pas lire un Secret externe pour construire l'en-tête d'une sonde HTTP. |
 | `endpointAuth.healthKey` | `"health-auth-token"` | Clé du Secret d'authentification qui contient le jeton porteur de `/health`. |
 | `endpointAuth.metricsKey` | `"metrics-auth-token"` | Clé du Secret d'authentification qui contient le jeton porteur de `/metrics`. |
 | `endpointAuth.healthToken` | `""` | Jeton porteur exigé par `GET /health`. Une valeur vide laisse `/health` sans authentification. Le chart stocke une valeur non vide dans son Secret d'authentification. Ignoré lorsque `existingSecret` est renseigné. `/ready` reste sans authentification, donc les sondes de démarrage et de disponibilité n'utilisent pas ce jeton. |
@@ -292,7 +292,7 @@ Modifier un jeton en ligne change la somme de contrôle du Secret géré par le 
 | Valeur | Défaut | Effet |
 |---|---|---|
 | `metrics.enabled` | `true` | Sert les métriques Prometheus sur `/metrics` et active le test de métriques du chart. |
-| `metrics.authToken` | `""` | Alias obsolète d'`endpointAuth.metricsToken`. Il reste fonctionnel et est stocké dans le Secret d'authentification géré par le chart, pas dans le ConfigMap. Renseigner les deux valeurs fait échouer le rendu. |
+| `metrics.authToken` | `""` | Alias obsolète d'`endpointAuth.metricsToken`. Il reste fonctionnel et est stocké dans le Secret d'authentification géré par le chart, pas dans le ConfigMap. La combiner avec `endpointAuth.metricsToken` ou `endpointAuth.existingSecret` fait échouer le rendu, car la valeur obsolète serait sinon ignorée sans avertissement. |
 | `metrics.rateLimitPoll.enabled` | `true` | Interroge périodiquement l'API de limite de débit GitHub, pour que le quota restant soit visible avant que les échanges commencent à échouer. |
 | `metrics.rateLimitPoll.interval` | `"60s"` | Intervalle d'interrogation de l'API de limite de débit. |
 | `metrics.reachabilityProbe.enabled` | `true` | Sonde périodiquement la joignabilité de l'API GitHub, ce qui distingue une panne de sortie réseau d'un refus de politique pendant un incident. |

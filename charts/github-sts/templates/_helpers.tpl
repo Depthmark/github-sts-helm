@@ -219,6 +219,9 @@ true
 {{- if and .Values.metrics.authToken .Values.endpointAuth.metricsToken -}}
 {{- fail "metrics.authToken is deprecated and conflicts with endpointAuth.metricsToken — set only endpointAuth.metricsToken" -}}
 {{- end -}}
+{{- if and .Values.metrics.authToken .Values.endpointAuth.existingSecret -}}
+{{- fail "metrics.authToken is deprecated and cannot be combined with endpointAuth.existingSecret — move the token into that Secret under endpointAuth.metricsKey and clear metrics.authToken" -}}
+{{- end -}}
 {{- if and .Values.endpointAuth.existingSecret .Values.probes.liveness.enabled (eq (include "github-sts.probeMode" .) "httpGet") -}}
 {{- fail "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline or set probes.mode to tcpSocket" -}}
 {{- end -}}

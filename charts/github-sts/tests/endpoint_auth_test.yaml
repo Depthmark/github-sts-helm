@@ -105,6 +105,16 @@ tests:
       - failedTemplate:
           errorMessage: "metrics.authToken is deprecated and conflicts with endpointAuth.metricsToken — set only endpointAuth.metricsToken"
 
+  - it: should reject the deprecated metrics token alongside an external Secret
+    template: deployment.yaml
+    set:
+      metrics.authToken: legacy-secret
+      endpointAuth.existingSecret: shared-endpoint-auth
+      probes.mode: tcpSocket
+    asserts:
+      - failedTemplate:
+          errorMessage: "metrics.authToken is deprecated and cannot be combined with endpointAuth.existingSecret — move the token into that Secret under endpointAuth.metricsKey and clear metrics.authToken"
+
   - it: should reject an external Secret with an HTTP liveness probe
     template: deployment.yaml
     set:

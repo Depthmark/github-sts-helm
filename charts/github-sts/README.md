@@ -216,7 +216,7 @@ jobs:
 | jti.ttl | string | `"1h"` | How long to remember consumed JTIs (Go duration string) |
 | logging.level | string | `"info"` | Application log level (debug | info | warn | error) |
 | logging.suppressHealthLogs | bool | `true` | Suppress health/ready/metrics access logs |
-| metrics.authToken | string | `""` | DEPRECATED, removed in a future chart release. Use `endpointAuth.metricsToken`, which keeps the token out of the ConfigMap. Setting both is rejected at render time. |
+| metrics.authToken | string | `""` | DEPRECATED, removed in a future chart release. Use `endpointAuth.metricsToken`, which keeps the token out of the ConfigMap. Combining it with `endpointAuth.metricsToken` or `endpointAuth.existingSecret` is rejected at render time, because the deprecated value would otherwise be discarded without warning. |
 | metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
 | metrics.rateLimitPoll.enabled | bool | `true` | Enable periodic polling of GitHub rate limit API |
 | metrics.rateLimitPoll.interval | string | `"60s"` | Polling interval (Go duration string) |

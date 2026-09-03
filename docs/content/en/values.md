@@ -274,7 +274,7 @@ An `emptyDir` is deleted with the pod. Ship the audit stream off the node with a
 
 | Value | Default | Effect |
 |---|---|---|
-| `endpointAuth.existingSecret` | `""` | Existing Secret in the release namespace that holds endpoint tokens. When set, the chart does not create an endpoint-auth Secret and ignores the inline token values. Set `probes.mode` to `tcpSocket` when liveness is enabled because the chart cannot read an external Secret to construct an HTTP probe header. |
+| `endpointAuth.existingSecret` | `""` | Existing Secret in the release namespace that holds endpoint tokens. When set, the chart does not create an endpoint-auth Secret and ignores `endpointAuth.healthToken` and `endpointAuth.metricsToken`. Combining it with the deprecated `metrics.authToken` makes rendering fail rather than dropping that token silently. Set `probes.mode` to `tcpSocket` when liveness is enabled because the chart cannot read an external Secret to construct an HTTP probe header. |
 | `endpointAuth.healthKey` | `"health-auth-token"` | Key in the endpoint-auth Secret that holds the `/health` bearer token. |
 | `endpointAuth.metricsKey` | `"metrics-auth-token"` | Key in the endpoint-auth Secret that holds the `/metrics` bearer token. |
 | `endpointAuth.healthToken` | `""` | Bearer token required on `GET /health`. Empty leaves `/health` unauthenticated. The chart stores a non-empty value in its endpoint-auth Secret. Ignored when `existingSecret` is set. `/ready` stays unauthenticated, so startup and readiness probes do not use this token. |
@@ -291,7 +291,7 @@ Changing an inline token changes the chart-owned Secret checksum and rolls the p
 | Value | Default | Effect |
 |---|---|---|
 | `metrics.enabled` | `true` | Serves Prometheus metrics on `/metrics` and enables the chart's metrics test hook. |
-| `metrics.authToken` | `""` | Deprecated alias for `endpointAuth.metricsToken`. It remains functional and is stored in the chart-owned endpoint-auth Secret, not the ConfigMap. Setting both values makes rendering fail. |
+| `metrics.authToken` | `""` | Deprecated alias for `endpointAuth.metricsToken`. It remains functional and is stored in the chart-owned endpoint-auth Secret, not the ConfigMap. Combining it with `endpointAuth.metricsToken` or `endpointAuth.existingSecret` makes rendering fail, because the deprecated value would otherwise be discarded without warning. |
 | `metrics.rateLimitPoll.enabled` | `true` | Polls the GitHub rate limit API so remaining quota is visible before exchanges start failing. |
 | `metrics.rateLimitPoll.interval` | `"60s"` | Poll interval for the rate limit API. |
 | `metrics.reachabilityProbe.enabled` | `true` | Probes GitHub API reachability on a timer, which separates an egress failure from a policy failure during an incident. |

@@ -32,7 +32,7 @@ helm diff upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 ## Migrer l'authentification du point d'entrée des métriques
 
-`metrics.authToken` est obsolète. Il reste fonctionnel pendant la migration, mais ne le renseignez pas en même temps qu'`endpointAuth.metricsToken` : le chart rejette ce conflit lors du rendu.
+`metrics.authToken` est obsolète. Il reste fonctionnel pendant la migration, mais ne le renseignez pas en même temps qu'`endpointAuth.metricsToken` ou qu'`endpointAuth.existingSecret` : le chart rejette ces deux combinaisons lors du rendu plutôt que d'abandonner la valeur obsolète sans avertissement.
 
 Déplacez la valeur vers la nouvelle clé :
 

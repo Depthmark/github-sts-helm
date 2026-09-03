@@ -31,7 +31,7 @@ helm diff upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 ## Migrate metrics endpoint authentication
 
-`metrics.authToken` is deprecated. It remains functional during migration, but do not set it together with `endpointAuth.metricsToken`: the chart rejects that conflict at render time.
+`metrics.authToken` is deprecated. It remains functional during migration, but do not set it together with `endpointAuth.metricsToken` or `endpointAuth.existingSecret`: the chart rejects both combinations at render time rather than discarding the deprecated value without warning.
 
 Move the value to the new key:
 
