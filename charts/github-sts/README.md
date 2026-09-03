@@ -185,6 +185,11 @@ jobs:
 | autoscaling.targetCPUUtilizationPercentage | int | `80` | Target CPU utilization percentage |
 | bundles | list | `[]` | Signed Rego/OPA bundles evaluated after the YAML trust policy allows and before a GitHub installation token is minted. Entries are passed through to the server's top-level `bundles:` config without validation or renaming, so use the server's snake_case field names. Requires a server build with bundle support: v0.0.3 ignores the key silently and runs with no Rego layer. Such a build also requires a top-level `bundle_enforcement` value, which this chart does not render; set `GITHUBSTS_BUNDLE_ENFORCEMENT` through `extraEnv`. For a local file ref, `registry.auth.password_file`, or `cosign.public_key_ref`, mount the file with `extraVolumes` and `extraVolumeMounts` and point the field at the mounted path. |
 | commonLabels | object | `{}` | Labels to add to all deployed objects |
+| endpointAuth.existingSecret | string | `""` | Existing Secret holding the tokens. When empty and a token is set below, the chart creates a Secret of its own. Point this at your own Secret when the token comes from an external secret manager. The chart then renders no Secret and only references it. |
+| endpointAuth.healthKey | string | `"health-auth-token"` | Key inside the Secret holding the /health bearer token. |
+| endpointAuth.healthToken | string | `""` | Bearer token required on `GET /health`. Empty leaves /health open. `/ready` is never authenticated by the broker, so readiness and startup probes are unaffected. Ignored when `existingSecret` is set. |
+| endpointAuth.metricsKey | string | `"metrics-auth-token"` | Key inside the Secret holding the /metrics bearer token. |
+| endpointAuth.metricsToken | string | `""` | Bearer token required on `GET /metrics`. Empty leaves /metrics open. Prometheus needs the same token. See `serviceMonitor.bearerTokenSecret`. Ignored when `existingSecret` is set. |
 | extraEnv | list | `[]` | Extra environment variables |
 | extraVolumeMounts | list | `[]` | Extra volume mounts for the container |
 | extraVolumes | list | `[]` | Extra volumes for the pod |
@@ -211,7 +216,7 @@ jobs:
 | jti.ttl | string | `"1h"` | How long to remember consumed JTIs (Go duration string) |
 | logging.level | string | `"info"` | Application log level (debug | info | warn | error) |
 | logging.suppressHealthLogs | bool | `true` | Suppress health/ready/metrics access logs |
-| metrics.authToken | string | `""` | Bearer token for /metrics endpoint (empty = unauthenticated) |
+| metrics.authToken | string | `""` | DEPRECATED, removed in a future chart release. Use `endpointAuth.metricsToken`, which keeps the token out of the ConfigMap. Setting both is rejected at render time. |
 | metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
 | metrics.rateLimitPoll.enabled | bool | `true` | Enable periodic polling of GitHub rate limit API |
 | metrics.rateLimitPoll.interval | string | `"60s"` | Polling interval (Go duration string) |
@@ -240,6 +245,7 @@ jobs:
 | podAnnotations | object | `{}` | Additional pod annotations |
 | podLabels | object | `{}` | Additional pod labels |
 | podMonitor.annotations | object | `{}` | Annotations for the PodMonitor |
+| podMonitor.bearerTokenSecret | object | `{}` | Secret holding the bearer token Prometheus presents when scraping. Required once `endpointAuth.metricsToken` is set, or scrapes return 401. Defaults to the chart's endpoint-auth Secret when left empty and a token is configured. When this monitor uses another namespace, mirror the Secret there because the operator resolves it from the monitor namespace. |
 | podMonitor.enabled | bool | `false` | Whether to create a PodMonitor |
 | podMonitor.honorLabels | bool | `false` | Honor labels |
 | podMonitor.interval | string | `"30s"` | Scrape interval |
@@ -263,7 +269,7 @@ jobs:
 | probes.liveness.initialDelaySeconds | int | `10` | Initial delay before liveness probe starts |
 | probes.liveness.periodSeconds | int | `30` | Period between liveness probes |
 | probes.liveness.timeoutSeconds | int | `3` | Timeout for liveness probe |
-| probes.mode | string | `"auto"` | Probe transport for the startup / readiness / liveness probes. `auto` (default) picks `httpGet` over HTTP, `httpGet` over HTTPS when `tls.enabled`, and `tcpSocket` when `tls.clientAuth.enabled` — the kubelet cannot present a client certificate, so an HTTP probe against an mTLS listener fails the handshake and would crash-loop the pod. Force a specific transport with `httpGet` or `tcpSocket`; note that `tcpSocket` only proves the listener accepts connections, not that `/ready` returns 200. |
+| probes.mode | string | `"auto"` | Probe transport for the startup / readiness / liveness probes. `auto` (default) picks `httpGet` over HTTP, `httpGet` over HTTPS when `tls.enabled`, and `tcpSocket` when `tls.clientAuth.enabled` — the kubelet cannot present a client certificate, so an HTTP probe against an mTLS listener fails the handshake and would crash-loop the pod. Force a specific transport with `httpGet` or `tcpSocket`; note that `tcpSocket` only proves the listener accepts connections, not that `/ready` returns 200. Also use `tcpSocket` with `endpointAuth.existingSecret`, because the kubelet cannot read that Secret to construct the liveness Authorization header. |
 | probes.readiness.enabled | bool | `true` | Enable readiness probe |
 | probes.readiness.failureThreshold | int | `3` | Failure threshold for readiness probe |
 | probes.readiness.initialDelaySeconds | int | `5` | Initial delay before readiness probe starts |
@@ -297,6 +303,7 @@ jobs:
 | serviceAccount.create | bool | `true` | Whether to create a service account |
 | serviceAccount.name | string | `""` | Name of the service account (defaults to fullname) |
 | serviceMonitor.annotations | object | `{}` | Annotations for the ServiceMonitor |
+| serviceMonitor.bearerTokenSecret | object | `{}` | Secret holding the bearer token Prometheus presents when scraping. Required once `endpointAuth.metricsToken` is set, or scrapes return 401. Defaults to the chart's endpoint-auth Secret when left empty and a token is configured. When this monitor uses another namespace, mirror the Secret there because the operator resolves it from the monitor namespace. |
 | serviceMonitor.enabled | bool | `false` | Whether to create a ServiceMonitor |
 | serviceMonitor.honorLabels | bool | `false` | Honor labels |
 | serviceMonitor.interval | string | `"30s"` | Scrape interval |
@@ -431,7 +438,7 @@ helm uninstall github-sts
 - Security context (non-root user, read-only filesystem)
 - Resource limits and requests
 - Prometheus metrics with ServiceMonitor / PodMonitor
-- Support for existing secrets (no credentials in values)
+- Support for externally managed Secrets for GitHub App private keys and endpoint bearer tokens
 - Multiple GitHub App support
 - Helm test hooks for deployment validation
 

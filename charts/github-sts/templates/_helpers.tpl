@@ -175,6 +175,52 @@ httpGet:
   {{- if $ctx.Values.tls.enabled }}
   scheme: HTTPS
   {{- end }}
+  {{- if .headerToken }}
+  httpHeaders:
+    - name: Authorization
+      value: {{ printf "Bearer %s" .headerToken | quote }}
+  {{- end }}
+{{- end -}}
+{{- end }}
+
+{{/* Effective inline metrics token, including the deprecated values key. */}}
+{{- define "github-sts.endpointAuthMetricsToken" -}}
+{{- .Values.endpointAuth.metricsToken | default .Values.metrics.authToken -}}
+{{- end }}
+
+{{/* Whether any endpoint token source is configured. */}}
+{{- define "github-sts.endpointAuthEnabled" -}}
+{{- if or .Values.endpointAuth.existingSecret .Values.endpointAuth.healthToken (include "github-sts.endpointAuthMetricsToken" .) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/* Whether the metrics endpoint may require bearer authentication. */}}
+{{- define "github-sts.metricsEndpointAuthEnabled" -}}
+{{- if or .Values.endpointAuth.existingSecret (include "github-sts.endpointAuthMetricsToken" .) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/* Render an endpoint-auth Secret only for inline token values. */}}
+{{- define "github-sts.createEndpointAuthSecret" -}}
+{{- if and (not .Values.endpointAuth.existingSecret) (or .Values.endpointAuth.healthToken (include "github-sts.endpointAuthMetricsToken" .)) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/* Secret containing endpoint bearer tokens. */}}
+{{- define "github-sts.endpointAuthSecretName" -}}
+{{- .Values.endpointAuth.existingSecret | default (printf "%s-endpoint-auth" (include "github-sts.fullname" .)) -}}
+{{- end }}
+
+{{/* Reject ambiguous endpoint-auth values and impossible liveness probes. */}}
+{{- define "github-sts.validateEndpointAuth" -}}
+{{- if and .Values.metrics.authToken .Values.endpointAuth.metricsToken -}}
+{{- fail "metrics.authToken is deprecated and conflicts with endpointAuth.metricsToken — set only endpointAuth.metricsToken" -}}
+{{- end -}}
+{{- if and .Values.endpointAuth.existingSecret .Values.probes.liveness.enabled (eq (include "github-sts.probeMode" .) "httpGet") -}}
+{{- fail "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline or set probes.mode to tcpSocket" -}}
 {{- end -}}
 {{- end }}
 
@@ -230,9 +276,24 @@ Usage: {{ include "github-sts.testFetch" (dict "ctx" $ "path" "/health") }}
 {{- $ctx := .ctx -}}
 {{- $url := printf "%s://%s:%v%s" (include "github-sts.scheme" $ctx) (include "github-sts.fullname" $ctx) $ctx.Values.service.port .path -}}
 URL="{{ $url }}"
+AUTH=""
+if [ -n "${STS_TEST_TOKEN:-}" ]; then AUTH="Authorization: Bearer ${STS_TEST_TOKEN}"; fi
 if command -v curl >/dev/null 2>&1; then
-  RESPONSE=$(curl -fsS {{ if $ctx.Values.tls.enabled }}-k {{ end }}"$URL")
+  RESPONSE=$(curl -fsS {{ if $ctx.Values.tls.enabled }}-k {{ end }}${AUTH:+-H "$AUTH"} "$URL")
 else
-  RESPONSE=$(wget -qO- {{ if $ctx.Values.tls.enabled }}--no-check-certificate {{ end }}"$URL")
+  RESPONSE=$(wget -qO- {{ if $ctx.Values.tls.enabled }}--no-check-certificate {{ end }}${AUTH:+--header="$AUTH"} "$URL")
 fi
+{{- end }}
+
+{{/* Secret-backed bearer token for an endpoint test hook. */}}
+{{- define "github-sts.testEnv" -}}
+{{- if .enabled }}
+env:
+  - name: STS_TEST_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: {{ include "github-sts.endpointAuthSecretName" .ctx }}
+        key: {{ .key }}
+        optional: true
+{{- end }}
 {{- end }}

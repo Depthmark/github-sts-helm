@@ -235,7 +235,9 @@ probes:
   # cannot present a client certificate, so an HTTP probe against an mTLS
   # listener fails the handshake and would crash-loop the pod. Force a specific
   # transport with `httpGet` or `tcpSocket`; note that `tcpSocket` only proves
-  # the listener accepts connections, not that `/ready` returns 200.
+  # the listener accepts connections, not that `/ready` returns 200. Also use
+  # `tcpSocket` with `endpointAuth.existingSecret`, because the kubelet cannot
+  # read that Secret to construct the liveness Authorization header.
   mode: "auto"
   # Startup probe configuration. While the startup probe is running, liveness
   # and readiness probes are suspended — this lets you grant a long startup
@@ -493,11 +495,41 @@ audit:
   # -- Channel buffer size for async audit writes
   bufferSize: 1024
 
+# Bearer tokens for the operational endpoints. Both are optional and empty by
+# default, which leaves the endpoints unauthenticated. The broker treats an
+# empty token as "no auth required".
+#
+# Tokens are never written into the ConfigMap. The chart puts them in a Secret
+# and injects them as GITHUBSTS_HEALTH_AUTH_TOKEN and
+# GITHUBSTS_METRICS_AUTH_TOKEN, which the broker reads in preference to the
+# config file. The health token is also inlined into the liveness probe's pod
+# spec because the kubelet cannot resolve a Secret reference for HTTP headers.
+endpointAuth:
+  # -- Existing Secret holding the tokens. When empty and a token is set below,
+  # the chart creates a Secret of its own. Point this at your own Secret when
+  # the token comes from an external secret manager. The chart then renders no
+  # Secret and only references it.
+  existingSecret: ""
+  # -- Key inside the Secret holding the /health bearer token.
+  healthKey: "health-auth-token"
+  # -- Key inside the Secret holding the /metrics bearer token.
+  metricsKey: "metrics-auth-token"
+  # -- Bearer token required on `GET /health`. Empty leaves /health open.
+  # `/ready` is never authenticated by the broker, so readiness and startup
+  # probes are unaffected. Ignored when `existingSecret` is set.
+  healthToken: ""
+  # -- Bearer token required on `GET /metrics`. Empty leaves /metrics open.
+  # Prometheus needs the same token. See
+  # `serviceMonitor.bearerTokenSecret`. Ignored when `existingSecret` is set.
+  metricsToken: ""
+
 # Metrics configuration
 metrics:
   # -- Enable Prometheus metrics endpoint
   enabled: true
-  # -- Bearer token for /metrics endpoint (empty = unauthenticated)
+  # -- DEPRECATED, removed in a future chart release. Use
+  # `endpointAuth.metricsToken`, which keeps the token out of the ConfigMap.
+  # Setting both is rejected at render time.
   authToken: ""
   # Rate limit polling configuration
   rateLimitPoll:
@@ -528,6 +560,14 @@ serviceMonitor:
   scrapeTimeout: 10s
   # -- Path to scrape metrics from
   path: /metrics
+  # -- Secret holding the bearer token Prometheus presents when scraping.
+  # Required once `endpointAuth.metricsToken` is set, or scrapes return 401.
+  # Defaults to the chart's endpoint-auth Secret when left empty and a token is
+  # configured. When this monitor uses another namespace, mirror the Secret
+  # there because the operator resolves it from the monitor namespace.
+  bearerTokenSecret: {}
+    # name: my-github-sts-endpoint-auth
+    # key: metrics-auth-token
   # -- Scrape scheme. Empty means auto: `https` when `tls.enabled`, else
   # `http`. Set explicitly only when something outside the chart (a mesh
   # sidecar terminating TLS, for example) changes what the scraper sees.
@@ -567,6 +607,14 @@ podMonitor:
   scrapeTimeout: 10s
   # -- Path to scrape metrics from
   path: /metrics
+  # -- Secret holding the bearer token Prometheus presents when scraping.
+  # Required once `endpointAuth.metricsToken` is set, or scrapes return 401.
+  # Defaults to the chart's endpoint-auth Secret when left empty and a token is
+  # configured. When this monitor uses another namespace, mirror the Secret
+  # there because the operator resolves it from the monitor namespace.
+  bearerTokenSecret: {}
+    # name: my-github-sts-endpoint-auth
+    # key: metrics-auth-token
   # -- Scrape scheme. Empty means auto: `https` when `tls.enabled`, else
   # `http`. Set explicitly only when something outside the chart (a mesh
   # sidecar terminating TLS, for example) changes what the scraper sees.

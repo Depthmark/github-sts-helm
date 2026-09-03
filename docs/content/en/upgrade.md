@@ -29,9 +29,37 @@ helm diff upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 `helm diff` is the [helm-diff](https://github.com/databus23/helm-diff) plugin. Without it, `helm template ... | kubectl diff -f -` gets you most of the way.
 
+## Migrate metrics endpoint authentication
+
+`metrics.authToken` is deprecated. It remains functional during migration, but do not set it together with `endpointAuth.metricsToken`: the chart rejects that conflict at render time.
+
+Move the value to the new key:
+
+```yaml
+endpointAuth:
+  metricsToken: "replace-with-your-metrics-token"
+```
+
+Before this change, `metrics.authToken` rendered as `metrics.auth_token` in the server ConfigMap. After the upgrade, the chart removes `auth_token` from the ConfigMap, writes the token to its endpoint-auth Secret, and injects `GITHUBSTS_METRICS_AUTH_TOKEN` from that Secret. This also applies while the deprecated value is still in use.
+
+To manage the Secret outside Helm, create it in the release namespace before the upgrade:
+
+```bash
+kubectl create secret generic github-sts-endpoint-auth \
+  --namespace github-sts \
+  --from-file=metrics-auth-token=/path/to/protected/metrics-token \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl describe secret github-sts-endpoint-auth --namespace github-sts
+```
+
+Confirm that `metrics-auth-token` appears in the `Data` section, then set `endpointAuth.existingSecret: github-sts-endpoint-auth` and `endpointAuth.metricsKey: metrics-auth-token`. Check it again after the upgrade and after every rotation. The Deployment marks the Secret and key references optional, so a missing object or key lets the pod start with endpoint authentication disabled. The default HTTP liveness probe also cannot read an external Secret to construct an `Authorization` header, so this configuration requires `probes.mode: tcpSocket` while liveness is enabled.
+
 ## What triggers a restart
 
 The pod template carries `checksum/config`, a hash of the rendered ConfigMap. Any change to a server-side value — an issuer, an audience, a log level, a policy TTL — changes that hash and rolls the pods. This is deliberate: the server reads its configuration at startup, so a ConfigMap update that did not roll the pods would leave the running process on the old configuration with no signal that it had diverged.
+
+The pod template also carries `checksum/secret`. Changing an inline endpoint token changes the chart-owned Secret and rolls the pods. Changing the contents of `endpointAuth.existingSecret` does not change that checksum, and environment variables sourced from a Secret are resolved when the pod starts. Restart the Deployment after rotating an external endpoint-auth Secret, or configure a Secret reloader.
 
 The practical consequence is that this chart rolls more often than a typical one. `revisionHistoryLimit` defaults to `5` for the same reason.
 
@@ -74,7 +102,7 @@ helm rollback github-sts 3 --namespace github-sts
 
 `revisionHistoryLimit` bounds how far back `kubectl rollout undo` can reach at the ReplicaSet level. Helm's own history is separate and is bounded by `--history-max` on the client, so the two do not necessarily agree on how far back you can go.
 
-A rollback restores the ConfigMap along with the Deployment, so it undoes a server configuration change as well as an image change.
+A rollback restores the ConfigMap and chart-owned endpoint-auth Secret along with the Deployment, so it undoes a server configuration or inline token change as well as an image change.
 
 ## Before a production upgrade
 

@@ -2,6 +2,7 @@ suite: Deployment
 templates:
   - deployment.yaml
   - configmap.yaml
+  - secret.yaml
 release:
   name: test
   namespace: github-sts
@@ -139,6 +140,90 @@ tests:
           content:
             name: LOG_FORMAT
             value: json
+
+  - it: should omit endpoint auth env vars by default
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_HEALTH_AUTH_TOKEN
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_METRICS_AUTH_TOKEN
+
+  - it: should inject the inline health token from the generated Secret
+    template: deployment.yaml
+    set:
+      endpointAuth.healthToken: health-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_HEALTH_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: test-github-sts-endpoint-auth
+                key: health-auth-token
+                optional: true
+
+  - it: should inject the inline metrics token from the generated Secret
+    template: deployment.yaml
+    set:
+      endpointAuth.metricsToken: metrics-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_METRICS_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: test-github-sts-endpoint-auth
+                key: metrics-auth-token
+                optional: true
+
+  - it: should preserve the deprecated metrics token through the generated Secret
+    template: deployment.yaml
+    set:
+      metrics.authToken: legacy-metrics-secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_METRICS_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: test-github-sts-endpoint-auth
+                key: metrics-auth-token
+                optional: true
+
+  - it: should inject external Secret keys as optional env references
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: shared-endpoint-auth
+      endpointAuth.healthKey: custom-health
+      endpointAuth.metricsKey: custom-metrics
+      probes.mode: tcpSocket
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_HEALTH_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: shared-endpoint-auth
+                key: custom-health
+                optional: true
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_METRICS_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: shared-endpoint-auth
+                key: custom-metrics
+                optional: true
 
   # -------------------------------------------------------------------------
   # Ports
@@ -293,6 +378,30 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].livenessProbe.failureThreshold
           value: 5
+
+  - it: should add the inline health bearer token only to liveness
+    template: deployment.yaml
+    set:
+      endpointAuth.healthToken: health-secret
+      probes.startup.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders
+          content:
+            name: Authorization
+            value: Bearer health-secret
+      - isNull:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.httpHeaders
+      - isNull:
+          path: spec.template.spec.containers[0].startupProbe.httpGet.httpHeaders
+
+  - it: should not add a liveness header for metrics-only auth
+    template: deployment.yaml
+    set:
+      endpointAuth.metricsToken: metrics-secret
+    asserts:
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders
 
   # -------------------------------------------------------------------------
   # Security context
@@ -610,6 +719,12 @@ tests:
     asserts:
       - isNotNull:
           path: spec.template.metadata.annotations["checksum/config"]
+
+  - it: should include endpoint auth Secret checksum annotation
+    template: deployment.yaml
+    asserts:
+      - isNotNull:
+          path: spec.template.metadata.annotations["checksum/secret"]
 
   - it: should render custom pod annotations
     template: deployment.yaml

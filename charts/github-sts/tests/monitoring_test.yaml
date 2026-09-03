@@ -135,6 +135,75 @@ tests:
           path: spec.namespaceSelector.matchNames
           content: github-sts
 
+  - it: should omit ServiceMonitor bearer auth by default
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+    asserts:
+      - isNull:
+          path: spec.endpoints[0].bearerTokenSecret
+
+  - it: should not configure ServiceMonitor bearer auth for health-only auth
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+      endpointAuth.healthToken: health-secret
+    asserts:
+      - isNull:
+          path: spec.endpoints[0].bearerTokenSecret
+
+  - it: should use the generated endpoint auth Secret for ServiceMonitor
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+      endpointAuth.metricsToken: metrics-secret
+    asserts:
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret
+          value:
+            name: test-github-sts-endpoint-auth
+            key: metrics-auth-token
+
+  - it: should preserve deprecated metrics auth for ServiceMonitor
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+      metrics.authToken: legacy-metrics-secret
+    asserts:
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret
+          value:
+            name: test-github-sts-endpoint-auth
+            key: metrics-auth-token
+
+  - it: should use the external endpoint auth Secret for ServiceMonitor
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+      endpointAuth.existingSecret: shared-endpoint-auth
+      endpointAuth.metricsKey: custom-metrics
+    asserts:
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret
+          value:
+            name: shared-endpoint-auth
+            key: custom-metrics
+
+  - it: should prefer an explicit ServiceMonitor bearer token Secret
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+      endpointAuth.metricsToken: metrics-secret
+      serviceMonitor.bearerTokenSecret:
+        name: prometheus-endpoint-auth
+        key: prometheus-token
+    asserts:
+      - equal:
+          path: spec.endpoints[0].bearerTokenSecret
+          value:
+            name: prometheus-endpoint-auth
+            key: prometheus-token
+
   # =========================================================================
   # PodMonitor
   # =========================================================================
@@ -231,3 +300,72 @@ tests:
       - equal:
           path: spec.podMetricsEndpoints[0].path
           value: /custom-metrics
+
+  - it: should omit PodMonitor bearer auth by default
+    template: podmonitor.yaml
+    set:
+      podMonitor.enabled: true
+    asserts:
+      - isNull:
+          path: spec.podMetricsEndpoints[0].bearerTokenSecret
+
+  - it: should not configure PodMonitor bearer auth for health-only auth
+    template: podmonitor.yaml
+    set:
+      podMonitor.enabled: true
+      endpointAuth.healthToken: health-secret
+    asserts:
+      - isNull:
+          path: spec.podMetricsEndpoints[0].bearerTokenSecret
+
+  - it: should use the generated endpoint auth Secret for PodMonitor
+    template: podmonitor.yaml
+    set:
+      podMonitor.enabled: true
+      endpointAuth.metricsToken: metrics-secret
+    asserts:
+      - equal:
+          path: spec.podMetricsEndpoints[0].bearerTokenSecret
+          value:
+            name: test-github-sts-endpoint-auth
+            key: metrics-auth-token
+
+  - it: should preserve deprecated metrics auth for PodMonitor
+    template: podmonitor.yaml
+    set:
+      podMonitor.enabled: true
+      metrics.authToken: legacy-metrics-secret
+    asserts:
+      - equal:
+          path: spec.podMetricsEndpoints[0].bearerTokenSecret
+          value:
+            name: test-github-sts-endpoint-auth
+            key: metrics-auth-token
+
+  - it: should use the external endpoint auth Secret for PodMonitor
+    template: podmonitor.yaml
+    set:
+      podMonitor.enabled: true
+      endpointAuth.existingSecret: shared-endpoint-auth
+      endpointAuth.metricsKey: custom-metrics
+    asserts:
+      - equal:
+          path: spec.podMetricsEndpoints[0].bearerTokenSecret
+          value:
+            name: shared-endpoint-auth
+            key: custom-metrics
+
+  - it: should prefer an explicit PodMonitor bearer token Secret
+    template: podmonitor.yaml
+    set:
+      podMonitor.enabled: true
+      endpointAuth.metricsToken: metrics-secret
+      podMonitor.bearerTokenSecret:
+        name: prometheus-endpoint-auth
+        key: prometheus-token
+    asserts:
+      - equal:
+          path: spec.podMetricsEndpoints[0].bearerTokenSecret
+          value:
+            name: prometheus-endpoint-auth
+            key: prometheus-token
