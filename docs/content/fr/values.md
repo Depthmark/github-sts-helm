@@ -140,11 +140,12 @@ Voir [Réseau]({{< relref "networking" >}}) pour des exemples complets.
 | `ingress.enabled` | `false` | Génère un Ingress. |
 | `ingress.className` | `""` | `ingressClassName` de l'Ingress. |
 | `ingress.annotations` | `{}` | Annotations de l'Ingress, par exemple `cert-manager.io/cluster-issuer`. |
-| `ingress.hosts` | hôte `github-sts.example.com`, chemin `/` avec `pathType: Prefix` | Règles d'hôtes et de chemins. Remplacez l'hôte d'exemple avant d'activer l'Ingress. |
+| `ingress.hosts` | hôte `github-sts.example.com`, chemin `/sts/` avec `pathType: Prefix` | Règles d'hôtes et de chemins. Remplacez l'hôte d'exemple avant d'activer l'Ingress. Le chemin par défaut ne publie que le point d'entrée d'échange ; `/` publie aussi `/health`, `/ready` et `/metrics`. |
 | `ingress.tls` | `[]` | Blocs TLS. Un Ingress sans bloc TLS expose le point d'entrée d'échange en HTTP clair, ce qui laisse passer le jeton porteur OIDC en clair sur le réseau. |
 | `httproute.enabled` | `false` | Génère une HTTPRoute Gateway API. Exige les CRD Gateway API. |
 | `httproute.parentRefs` | `[]` | Gateways auxquelles la route se rattache. |
 | `httproute.hostnames` | `[]` | Noms d'hôtes que la route reconnaît. |
+| `httproute.paths` | chemin `/sts/` avec `type: PathPrefix` | Chemins que la route achemine. Restreints comme `ingress.hosts`. Ne peut pas être vide : Gateway API interprète une règle sans correspondance comme correspondant à tous les chemins, le chart refuse donc de se générer. |
 | `httproute.port` | `8080` | Port du Service de destination vers lequel la route achemine. |
 | `httproute.annotations` | `{}` | Annotations de la HTTPRoute. |
 

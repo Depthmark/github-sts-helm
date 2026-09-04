@@ -1,4 +1,7 @@
 {{- if .Values.httproute.enabled }}
+{{- if not .Values.httproute.paths }}
+{{- fail "httproute.paths must list at least one match — Gateway API reads a rule with no matches as matching every path, which would publish /health, /ready and /metrics alongside the exchange endpoint" }}
+{{- end }}
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -32,9 +35,11 @@ spec:
     {{- end }}
   rules:
     - matches:
+        {{- range .Values.httproute.paths }}
         - path:
-            type: PathPrefix
-            value: /
+            type: {{ .type | default "PathPrefix" }}
+            value: {{ .path | quote }}
+        {{- end }}
       backendRefs:
         - name: {{ include "github-sts.fullname" . }}
           port: {{ .Values.httproute.port }}

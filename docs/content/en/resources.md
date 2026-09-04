@@ -73,6 +73,8 @@ The container listens on `service.targetPort` as the named port `http`, or `http
 | `/ready` | The readiness probe, the startup probe, and the `test-ready` hook. |
 | `/metrics` | Prometheus, the monitors, and the `test-metrics` hook. Rendered only when `metrics.enabled` is true. |
 
+An `ingress` or `httproute` route publishes only the paths it matches, and both default to the exchange endpoint alone. See [Networking]({{< relref "networking" >}}) for what widening that to `/` exposes.
+
 Under `tls.clientAuth.enabled` the kubelet stops using those paths: the probes become `tcpSocket` checks on the same port, because they cannot present a client certificate. See [TLS and mTLS]({{< relref "tls" >}}).
 
 ## Labels

@@ -24,7 +24,7 @@ ingress:
   hosts:
     - host: github-sts.example.com
       paths:
-        - path: /
+        - path: /sts/
           pathType: Prefix
   tls:
     - secretName: github-sts-tls
