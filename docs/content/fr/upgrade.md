@@ -30,6 +30,17 @@ helm diff upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 `helm diff` est le greffon [helm-diff](https://github.com/databus23/helm-diff). À défaut, `helm template ... | kubectl diff -f -` en fait l'essentiel.
 
+## Les routes ne publient plus que `/sts/`
+
+Les versions précédentes du chart donnaient à `ingress.hosts[].paths` la valeur par défaut `/` avec `pathType: Prefix`, et généraient la HTTPRoute avec une correspondance `PathPrefix` figée sur `/`. Dans les deux cas, `/health`, `/ready` et `/metrics` étaient publiés sur le nom d'hôte public à côté du point d'entrée d'échange. Les deux valent désormais `/sts/` par défaut.
+
+La mise à niveau restreint la route, sauf si votre fichier de valeurs définit lui-même le chemin. Deux points à vérifier avant de la déployer :
+
+- Tout ce qui, hors du cluster, appelle `/health`, `/ready` ou `/metrics` via la route — une sonde de disponibilité externe, un Prometheus qui scrute à travers le répartiteur de charge — cesse de répondre. Déplacez-le dans le cluster, ou rajoutez le chemin explicitement.
+- Un fichier de valeurs qui fixe `path: /` conserve la route large. La restreindre est une modification de valeurs, et [Réseau]({{< relref "networking" >}}) décrit ce que la route large expose.
+
+`httproute.paths` est nouveau, et ne peut pas être vide : Gateway API interprète une règle sans correspondance comme correspondant à tous les chemins, le chart refuse donc de se générer plutôt que de tout publier.
+
 ## Ce qui déclenche un redémarrage
 
 Le template de pod porte `checksum/config`, une empreinte du ConfigMap généré. Tout changement d'une valeur côté serveur — un émetteur, une audience, un niveau de journalisation, un TTL de politique — modifie cette empreinte et fait rouler les pods. C'est délibéré : le serveur lit sa configuration au démarrage, donc une mise à jour du ConfigMap qui ne ferait pas rouler les pods laisserait le processus sur l'ancienne configuration sans aucun signal de cette divergence.

@@ -194,6 +194,7 @@ jobs:
 | httproute.enabled | bool | `false` | Enable HTTPRoute |
 | httproute.hostnames | list | `[]` | Hostnames for routing |
 | httproute.parentRefs | list | `[]` | Gateway parent references |
+| httproute.paths | list | `[{"path":"/sts/","type":"PathPrefix"}]` | Path matches routed to the Service. Scoped the same way as `ingress.hosts`: the default routes the exchange endpoint only and keeps `/health`, `/ready` and `/metrics` off the Gateway. Each entry takes a `path` and a `type` (`PathPrefix` or `Exact`). The list may not be empty — Gateway API reads a rule with no matches as matching every path. |
 | httproute.port | int | `8080` | Port to route traffic to |
 | image.digest | string | `""` | Image digest in `sha256:<hex>` form. When set, the chart renders `repository@digest` and `tag` is ignored. Pin by digest in production so the deployed bytes are immutable and verifiable by cosign / Kyverno `verifyImages` / Sigstore policy-controller. Tag-based pulls can silently change underneath you when a tag is overwritten upstream; digest pulls cannot. Use `crane digest <image:tag>` (or `docker buildx imagetools inspect`) to resolve a tag to its digest before setting this. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. With a tag pull, `IfNotPresent` is fine; with a digest pull, the kubelet treats the digest as immutable and skips re-pull regardless of policy. |
@@ -204,7 +205,7 @@ jobs:
 | ingress.annotations | object | `{}` | Ingress annotations |
 | ingress.className | string | `""` | Ingress class name |
 | ingress.enabled | bool | `false` | Enable Ingress |
-| ingress.hosts | list | `[{"host":"github-sts.example.com","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress host rules |
+| ingress.hosts | list | `[{"host":"github-sts.example.com","paths":[{"path":"/sts/","pathType":"Prefix"}]}]` | Ingress host rules. The default publishes the exchange endpoint and nothing else: `/sts/` with `pathType: Prefix` matches `/sts/exchange` and leaves `/health`, `/ready` and `/metrics` reachable only from inside the cluster. Widening a path to `/` puts all three on the public hostname — `/metrics` is unauthenticated unless `metrics.authToken` is set, and it carries per-app exchange counts and GitHub API rate limit state. |
 | ingress.tls | list | `[]` | TLS configuration |
 | jti.backend | string | `"memory"` | Backend: "memory" or "redis" |
 | jti.redisUrl | string | `""` | Required if backend=redis |
@@ -351,6 +352,15 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
   --set httproute.parentRefs[0].name="my-gateway" \
   --set httproute.hostnames[0]="github-sts.example.com"
 ```
+
+### Published paths
+
+Both routes default to the exchange endpoint alone — `/sts/` as a prefix match —
+and neither publishes `/health`, `/ready`, or `/metrics`. The container serves
+all four on one port, so the route is what decides which of them are reachable
+from outside the cluster. Widening `ingress.hosts[].paths` or `httproute.paths`
+to `/` puts the unauthenticated `/metrics` endpoint, and its per-app exchange
+counts and rate limit state, on the public hostname.
 
 ## TLS & mTLS
 
