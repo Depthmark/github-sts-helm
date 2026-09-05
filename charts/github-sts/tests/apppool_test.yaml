@@ -306,6 +306,16 @@ tests:
       - failedTemplate:
           errorPattern: "existingSecret is required"
 
+  - it: should fail when a single-App entry has no appId
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "github\\.apps\\.default: appId is required"
+
   - it: should fail when an instance has no appId
     template: deployment.yaml
     set:
@@ -369,6 +379,33 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "name must match"
+
+  - it: should fail on an instance name longer than the label ceiling
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "name exceeds maximum length of 100"
+
+  - it: should accept an instance name exactly at the label ceiling
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
 
   - it: should fail on rotation without instances
     template: deployment.yaml
