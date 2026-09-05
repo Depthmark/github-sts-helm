@@ -1,0 +1,15 @@
+---
+# Artifact Hub repository metadata file.
+#
+# Reference: https://artifacthub.io/docs/topics/repositories/
+#
+# The chart is published as an OCI artifact, so Artifact Hub does not read this
+# file from git. The release workflow (.github/workflows/release.yml) pushes it
+# with oras to ghcr.io/depthmark/charts/github-sts:artifacthub.io, which is
+# where Artifact Hub looks for it.
+#
+# Changes only take effect the next time Artifact Hub processes the repository.
+
+# ID of the Artifact Hub repository the chart is published to. Required for the
+# verified publisher badge; copy it from the Artifact Hub control panel.
+repositoryID: 211309c6-75c1-44b2-b21b-9d13bbb5b3ff
