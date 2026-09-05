@@ -94,11 +94,16 @@ ingress:
   # -- Ingress annotations
   annotations: {}
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"
-  # -- Ingress host rules
+  # -- Ingress host rules. The default publishes the exchange endpoint and
+  # nothing else: `/sts/` with `pathType: Prefix` matches `/sts/exchange` and
+  # leaves `/health`, `/ready` and `/metrics` reachable only from inside the
+  # cluster. Widening a path to `/` puts all three on the public hostname —
+  # `/metrics` is unauthenticated unless `metrics.authToken` is set, and it
+  # carries per-app exchange counts and GitHub API rate limit state.
   hosts:
     - host: github-sts.example.com
       paths:
-        - path: /
+        - path: /sts/
           pathType: Prefix
   # -- TLS configuration
   tls: []
@@ -120,6 +125,14 @@ httproute:
   # -- Hostnames for routing
   hostnames: []
     # - github-sts.example.com
+  # -- Path matches routed to the Service. Scoped the same way as
+  # `ingress.hosts`: the default routes the exchange endpoint only and keeps
+  # `/health`, `/ready` and `/metrics` off the Gateway. Each entry takes a
+  # `path` and a `type` (`PathPrefix` or `Exact`). The list may not be empty —
+  # Gateway API reads a rule with no matches as matching every path.
+  paths:
+    - path: /sts/
+      type: PathPrefix
   # -- Port to route traffic to
   port: 8080
 

@@ -74,6 +74,8 @@ Le conteneur écoute sur `service.targetPort` sous le port nommé `http`, ou `ht
 | `/ready` | Les sondes de disponibilité et de démarrage, ainsi que le test `test-ready`. |
 | `/metrics` | Prometheus, les moniteurs et le test `test-metrics`. Généré uniquement lorsque `metrics.enabled` est vrai. |
 
+Une route `ingress` ou `httproute` ne publie que les chemins qu'elle reconnaît, et toutes deux se limitent par défaut au seul point d'entrée d'échange. Voir [Réseau]({{< relref "networking" >}}) pour ce qu'un élargissement à `/` expose.
+
 Sous `tls.clientAuth.enabled`, le kubelet n'utilise plus ces chemins : les sondes deviennent des vérifications `tcpSocket` sur le même port, faute de pouvoir présenter un certificat client. Voir [TLS et mTLS]({{< relref "tls" >}}).
 
 ## Labels

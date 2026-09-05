@@ -2,16 +2,22 @@ Thank you for installing {{ include "github-sts.fullname" . }}!
 
 {{- if .Values.ingress.enabled }}
 
-The application is accessible via Ingress:
+The application is accessible via Ingress on these paths only:
 {{- range .Values.ingress.hosts }}
-  - http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- $host := .host }}
+{{- range .paths }}
+  - http{{ if $.Values.ingress.tls }}s{{ end }}://{{ $host }}{{ .path }}
+{{- end }}
 {{- end }}
 
 {{- else if .Values.httproute.enabled }}
 
-The application is accessible via HTTPRoute:
+The application is accessible via HTTPRoute on these paths only:
 {{- range .Values.httproute.hostnames }}
-  - {{ . }}
+{{- $host := . }}
+{{- range $.Values.httproute.paths }}
+  - {{ $host }}{{ .path }}
+{{- end }}
 {{- end }}
 
 {{- else if contains "NodePort" .Values.service.type }}

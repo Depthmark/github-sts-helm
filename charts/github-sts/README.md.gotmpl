@@ -223,6 +223,15 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
   --set httproute.hostnames[0]="github-sts.example.com"
 ```
 
+### Published paths
+
+Both routes default to the exchange endpoint alone — `/sts/` as a prefix match —
+and neither publishes `/health`, `/ready`, or `/metrics`. The container serves
+all four on one port, so the route is what decides which of them are reachable
+from outside the cluster. Widening `ingress.hosts[].paths` or `httproute.paths`
+to `/` puts the unauthenticated `/metrics` endpoint, and its per-app exchange
+counts and rate limit state, on the public hostname.
+
 ## TLS & mTLS
 
 The pod serves plain HTTP by default and TLS terminates in front of it, at the

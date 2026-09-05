@@ -216,11 +216,12 @@ See [Networking]({{< relref "networking" >}}) for worked examples.
 | `ingress.enabled` | `false` | Renders an Ingress. |
 | `ingress.className` | `""` | `ingressClassName` on the Ingress. |
 | `ingress.annotations` | `{}` | Ingress annotations, such as `cert-manager.io/cluster-issuer`. |
-| `ingress.hosts` | host `github-sts.example.com`, path `/` with `pathType: Prefix` | Host and path rules. Replace the placeholder host before enabling. |
+| `ingress.hosts` | host `github-sts.example.com`, path `/sts/` with `pathType: Prefix` | Host and path rules. Replace the placeholder host before enabling. The default path publishes the exchange endpoint only; `/` also publishes `/health`, `/ready`, and `/metrics`. |
 | `ingress.tls` | `[]` | TLS blocks. An Ingress with no TLS block serves the exchange endpoint over plaintext HTTP, which exposes the bearer OIDC token in transit. |
 | `httproute.enabled` | `false` | Renders a Gateway API HTTPRoute. Requires the Gateway API CRDs. |
 | `httproute.parentRefs` | `[]` | Gateways the route attaches to. |
 | `httproute.hostnames` | `[]` | Hostnames the route matches. |
+| `httproute.paths` | path `/sts/` with `type: PathPrefix` | Path matches the route forwards. Scoped like `ingress.hosts`. May not be empty: Gateway API reads a rule with no matches as matching every path, so the chart fails to render instead. |
 | `httproute.port` | `8080` | Backend Service port the route forwards to. |
 | `httproute.annotations` | `{}` | HTTPRoute annotations. |
 

@@ -29,6 +29,17 @@ helm diff upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 `helm diff` is the [helm-diff](https://github.com/databus23/helm-diff) plugin. Without it, `helm template ... | kubectl diff -f -` gets you most of the way.
 
+## Routes now publish `/sts/` only
+
+Earlier chart releases defaulted `ingress.hosts[].paths` to `/` with `pathType: Prefix`, and rendered the HTTPRoute with a hard-coded `PathPrefix` match on `/`. Either one published `/health`, `/ready`, and `/metrics` on the public hostname alongside the exchange endpoint. Both now default to `/sts/`.
+
+The upgrade narrows the route unless your values file sets the path itself. Two things to check before rolling it out:
+
+- Anything outside the cluster that calls `/health`, `/ready`, or `/metrics` through the route — an external uptime check, a Prometheus that scrapes through the load balancer — stops resolving. Move it in-cluster, or add the path back explicitly.
+- A values file that pins `path: /` keeps the wide route. Narrowing it is a values change, and [Networking]({{< relref "networking" >}}) covers what the wide route exposes.
+
+`httproute.paths` is new, and it may not be empty: Gateway API reads a rule with no matches as matching every path, so the chart fails to render rather than publish everything.
+
 ## What triggers a restart
 
 The pod template carries `checksum/config`, a hash of the rendered ConfigMap. Any change to a server-side value — an issuer, an audience, a log level, a policy TTL — changes that hash and rolls the pods. This is deliberate: the server reads its configuration at startup, so a ConfigMap update that did not roll the pods would leave the running process on the old configuration with no signal that it had diverged.
