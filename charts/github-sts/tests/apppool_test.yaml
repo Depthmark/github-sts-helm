@@ -1,0 +1,464 @@
+suite: App Pools
+templates:
+  - configmap.yaml
+  - deployment.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # ConfigMap: pooled rendering
+  # -------------------------------------------------------------------------
+  - it: should render an instances list for a pooled app
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: checkout-1
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+            - name: checkout-2
+              appId: 222222
+              existingSecret: "checkout-2-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'instances:'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: "checkout-1"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 111111"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'private_key_path: "/etc/github-sts/apps/checkout/111111/github-app-private-key"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'private_key_path: "/etc/github-sts/apps/checkout/222222/github-app-private-key"'
+
+  - it: should default an instance name to its appId
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 333333
+              existingSecret: "checkout-3-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: "333333"'
+
+  - it: should honor a per-instance secret key in private_key_path
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+              secretPrivateKeyKey: "private-key.pem"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'private_key_path: "/etc/github-sts/apps/checkout/111111/private-key.pem"'
+
+  - it: should render org_policy_repo on a pooled app
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          orgPolicyRepo: ".github"
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'org_policy_repo: ".github"'
+
+  - it: should keep the flat form for a single-App entry
+    template: configmap.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 12345"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'private_key_path: "/etc/github-sts/apps/default/github-app-private-key"'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "instances:"
+
+  - it: should render pooled and single-App entries side by side
+    template: configmap.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 12345"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'private_key_path: "/etc/github-sts/apps/default/github-app-private-key"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'private_key_path: "/etc/github-sts/apps/checkout/111111/github-app-private-key"'
+
+  # -------------------------------------------------------------------------
+  # ConfigMap: rotation
+  # -------------------------------------------------------------------------
+  - it: should omit rotation when not configured
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "rotation:"
+
+  - it: should render every rotation field that is set
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+            - appId: 222222
+              existingSecret: "checkout-2-credentials"
+          rotation:
+            strategy: rate_limit_aware
+            minRemainingPct: 5
+            maxAttempts: 2
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'strategy: "rate_limit_aware"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "min_remaining_pct: 5"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "max_attempts: 2"
+
+  - it: should omit rotation fields left unset so the server applies its defaults
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+          rotation:
+            strategy: round_robin
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'strategy: "round_robin"'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "min_remaining_pct"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "max_attempts"
+
+  # -------------------------------------------------------------------------
+  # Deployment: key projection
+  # -------------------------------------------------------------------------
+  - it: should project one Secret per pool instance under a single app mount
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: checkout-1
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+            - name: checkout-2
+              appId: 222222
+              existingSecret: "checkout-2-credentials"
+              secretPrivateKeyKey: "private-key.pem"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: github-app-checkout-key
+            mountPath: /etc/github-sts/apps/checkout
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: github-app-checkout-key
+            projected:
+              sources:
+                - secret:
+                    name: checkout-1-credentials
+                    items:
+                      - key: github-app-private-key
+                        path: 111111/github-app-private-key
+                - secret:
+                    name: checkout-2-credentials
+                    items:
+                      - key: private-key.pem
+                        path: 222222/private-key.pem
+
+  - it: should keep two instances sharing a key name in separate directories
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "shared-credentials"
+              secretPrivateKeyKey: "key-a.pem"
+            - appId: 222222
+              existingSecret: "shared-credentials"
+              secretPrivateKeyKey: "key-b.pem"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: github-app-checkout-key
+            projected:
+              sources:
+                - secret:
+                    name: shared-credentials
+                    items:
+                      - key: key-a.pem
+                        path: 111111/key-a.pem
+                - secret:
+                    name: shared-credentials
+                    items:
+                      - key: key-b.pem
+                        path: 222222/key-b.pem
+
+  - it: should keep a plain Secret volume for a single-App entry
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: github-app-default-key
+            secret:
+              secretName: github-app-default-credentials
+              items:
+                - key: github-app-private-key
+                  path: github-app-private-key
+
+  # -------------------------------------------------------------------------
+  # Validation
+  # -------------------------------------------------------------------------
+  - it: should fail when an entry sets both a flat appId and instances
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "mutually exclusive"
+
+  - it: should fail when an entry has neither appId nor instances
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          orgPolicyRepo: ".github"
+    asserts:
+      - failedTemplate:
+          errorPattern: "set appId and existingSecret"
+
+  - it: should fail when a single-App entry has no existingSecret
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+    asserts:
+      - failedTemplate:
+          errorPattern: "existingSecret is required"
+
+  - it: should fail when a single-App entry has no appId
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "github\\.apps\\.default: appId is required"
+
+  - it: should fail when an instance has no appId
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - existingSecret: "checkout-1-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "instances\\[0\\]: appId is required"
+
+  - it: should fail when an instance has no existingSecret
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+    asserts:
+      - failedTemplate:
+          errorPattern: "existingSecret is required"
+
+  - it: should fail on a duplicate appId within one pool
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+            - appId: 111111
+              existingSecret: "checkout-2-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "duplicate appId 111111 within pool"
+
+  - it: should fail when an explicit name collides with another instance's default
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: "222222"
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+            - appId: 222222
+              existingSecret: "checkout-2-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "instance name \\\"222222\\\" used by both"
+
+  - it: should fail on an instance name that is not a safe label value
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: "checkout 1"
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "name must match"
+
+  - it: should fail on an instance name longer than the label ceiling
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "name exceeds maximum length of 100"
+
+  - it: should accept an instance name exactly at the label ceiling
+    template: configmap.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'name: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"'
+
+  - it: should fail on rotation without instances
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+          rotation:
+            strategy: round_robin
+    asserts:
+      - failedTemplate:
+          errorPattern: "rotation has no effect without instances"
+
+  - it: should fail on an unknown rotation strategy
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+          rotation:
+            strategy: least_used
+    asserts:
+      - failedTemplate:
+          errorPattern: "rotation.strategy must be round_robin or rate_limit_aware"
+
+  - it: should fail on a minRemainingPct outside [0,100)
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+          rotation:
+            strategy: rate_limit_aware
+            minRemainingPct: 100
+    asserts:
+      - failedTemplate:
+          errorPattern: "minRemainingPct must be in"
+
+  - it: should fail on a maxAttempts below 1
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              existingSecret: "checkout-1-credentials"
+          rotation:
+            maxAttempts: -1
+    asserts:
+      - failedTemplate:
+          errorPattern: "maxAttempts must be >= 1"

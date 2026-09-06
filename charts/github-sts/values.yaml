@@ -618,10 +618,24 @@ rateLimit:
   # - "192.168.0.0/16"
 
 # GitHub App configuration (required)
-# Each entry under apps is a GitHub App identified by name.
+# Each entry under apps is a logical app identified by name.
 # The app name is used in policy paths: {policy.basePath}/{appName}/{identity}.sts.yaml
-# Each app's private key must be stored in an existing Kubernetes Secret.
+# Every private key must be stored in an existing Kubernetes Secret.
 # For a single-app deployment, define one entry (e.g. "default").
+#
+# An entry is backed either by one GitHub App (`appId` + `existingSecret`) or by
+# a pool of several under `instances`, which spreads exchanges for that app name
+# across independent GitHub rate-limit buckets. The two forms are mutually
+# exclusive on one entry; the chart fails the render if both are set.
+#
+# Pooled apps require a server build with app-pool support. An older image
+# ignores `instances:` and then starts with no credentials for that app — check
+# the app version before switching an entry to the pooled form.
+#
+# `policyResolution` decides which repository wins when both the requesting repo
+# and the organization policy repo hold a policy for an identity. It only means
+# anything alongside `orgPolicyRepo`, and the server defaults it to `org_first`
+# whenever one is set.
 github:
   # -- GitHub Apps map. At least one app must be configured.
   # @default -- `{}`
@@ -636,6 +650,34 @@ github:
   #     appId: "67890"
   #     existingSecret: "another-app-github-credentials"
   #     orgPolicyRepo: ".github"
+  #     # org_first (default with orgPolicyRepo) — the org repo wins a collision
+  #     # repo_first                             — the requesting repo wins (legacy)
+  #     # org_only                               — the requesting repo is never read
+  #     policyResolution: "org_first"
+  #   # Pooled app: three physical GitHub Apps behind the name "checkout".
+  #   # Callers still send app=checkout; which instance served the request
+  #   # shows up only in the `instance` metric label and the audit log.
+  #   checkout:
+  #     orgPolicyRepo: ".github"
+  #     policyResolution: "org_only"
+  #     instances:
+  #       - name: checkout-1                 # optional; defaults to appId
+  #         appId: "111111"
+  #         existingSecret: "checkout-1-credentials"
+  #         secretPrivateKeyKey: "github-app-private-key"
+  #       - name: checkout-2
+  #         appId: "222222"
+  #         existingSecret: "checkout-2-credentials"
+  #       - name: checkout-3
+  #         appId: "333333"
+  #         existingSecret: "checkout-3-credentials"
+  #     rotation:
+  #       strategy: round_robin              # round_robin (default) | rate_limit_aware
+  #       minRemainingPct: 5                 # rate_limit_aware only
+  #       maxAttempts: 3                     # bound failover fan-out per request
+  #     # Every instance in a pool must be installed with identical permissions
+  #     # and repository access — the server treats them as interchangeable and
+  #     # does not verify that they are.
 
 # -- Additional pod annotations
 podAnnotations: {}

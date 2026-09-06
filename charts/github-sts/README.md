@@ -65,6 +65,33 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
 > **Note:** Each app's private key must be stored in an existing Kubernetes Secret.
 > The app name is used in trust policy paths: `{policy.basePath}/{appName}/{identity}.sts.yaml`
 
+### App Pools (several GitHub Apps behind one name)
+
+An entry under `github.apps` can be backed by a pool of GitHub Apps instead of one. Each instance has its own primary rate-limit budget, so the exchange ceiling for that app name scales with the pool, and the server fails over to another instance when the one it tried is rate-limited or unreachable. Callers keep sending the single logical name in `app=`.
+
+```yaml
+github:
+  apps:
+    checkout:
+      orgPolicyRepo: .github
+      instances:
+        - name: checkout-1          # optional; defaults to appId
+          appId: "111111"
+          existingSecret: checkout-1-credentials
+        - name: checkout-2
+          appId: "222222"
+          existingSecret: checkout-2-credentials
+      rotation:
+        strategy: round_robin       # round_robin (default) | rate_limit_aware
+        maxAttempts: 2              # bound failover fan-out per request
+```
+
+`instances` and `appId` are mutually exclusive on one entry; the chart fails the render if both are set. Each instance's key is projected under `/etc/github-sts/apps/{app}/{appId}/{key}`, so instances may reuse a key name or share a Secret.
+
+Pool support is newer than the server release this chart's `appVersion` pins. An older image ignores `instances:` and then starts with no credentials for that app, so move `image.tag` or `image.digest` to a build with pool support first.
+
+Every instance in a pool must be installed with identical permissions and repository access. The server treats members as interchangeable and does not verify that they are, so a mismatched instance shows up as intermittent `422` responses. Alert on `githubsts_app_pool_exhausted_total`, which increments when every instance in a pool failed one request.
+
 ## How It Works
 
 ```

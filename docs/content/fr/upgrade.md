@@ -77,6 +77,33 @@ kubectl rollout restart deployment/github-sts --namespace github-sts
 
 Mettre à jour le Secret ne redémarre rien, et le serveur conserve la clé lue au démarrage. C'est le redémarrage qui met la nouvelle clé en service. Générez la nouvelle clé dans GitHub et laissez les deux clés valides avant de supprimer l'ancienne, pour qu'un pod pas encore roulé continue de fonctionner.
 
+## Convertir une app en pool
+
+Faire passer une entrée d'une seule GitHub App à `instances` remplace `appId` et `existingSecret` par une liste : c'est une modification d'entrée, pas un ajout.
+
+```yaml
+github:
+  apps:
+    checkout:
+      instances:
+        - name: checkout-1
+          appId: "111111"          # l'App déjà utilisée par cette entrée
+          existingSecret: github-sts-checkout-1
+        - name: checkout-2
+          appId: "222222"          # nouvellement enregistrée et installée
+          existingSecret: github-sts-checkout-2
+```
+
+Trois points à connaître avant de l'appliquer.
+
+L'image serveur doit gérer les pools. Une image plus ancienne ignore `instances:` et se retrouve alors sans identifiants pour cette app, ce qui fait échouer tous ses échanges. Déplacez `image.tag` ou `image.digest` d'abord, vérifiez, puis changez les valeurs.
+
+Enregistrer une deuxième GitHub App ne suffit pas : installez-la sur les mêmes dépôts, avec les mêmes permissions, que celle déjà en service. Le serveur considère les membres d'un pool comme interchangeables et ne vérifie pas qu'ils le sont.
+
+Les métriques gagnent une étiquette `instance`. Toutes les séries GitHub App, de limitation de débit et d'accessibilité deviennent par instance, y compris pour les apps laissées à une seule App, qui compte comme un pool d'une instance. Les tableaux de bord et alertes qui agrègent ces séries ont besoin d'un `sum by (app)` ou équivalent avant la mise à niveau, sans quoi ils afficheront une série par instance. `githubsts_app_pool_exhausted_total` est le signal à alerter : il s'incrémente lorsque toutes les instances d'un pool ont échoué pour une même requête.
+
+Gardez l'ancienne App installée tant que le pool n'a pas servi de trafic. Le retour arrière est un `helm rollback`, qui restaure l'entrée précédente et son montage, mais ne fonctionne que si l'App qu'elle nomme est encore installée.
+
 ## Revenir en arrière
 
 ```bash
