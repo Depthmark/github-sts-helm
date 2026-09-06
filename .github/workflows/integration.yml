@@ -316,9 +316,9 @@ jobs:
             sleep 2
           done
           grep 'githubsts_app_pool_instances' /tmp/metrics.txt
-          grep -q 'githubsts_app_pool_instances{app="checkout"} 3' /tmp/metrics.txt
-          grep -q 'githubsts_app_pool_instances{app="release"} 2' /tmp/metrics.txt
-          grep -q 'githubsts_app_pool_instances{app="default"} 1' /tmp/metrics.txt
+          grep -q 'githubsts_app_pool_instances{github_app="checkout"} 3' /tmp/metrics.txt
+          grep -q 'githubsts_app_pool_instances{github_app="release"} 2' /tmp/metrics.txt
+          grep -q 'githubsts_app_pool_instances{github_app="default"} 1' /tmp/metrics.txt
           echo "Pool metrics verified"
 
       - name: Collect debug info on failure
