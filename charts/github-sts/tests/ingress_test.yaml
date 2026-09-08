@@ -86,10 +86,36 @@ tests:
           value: github-sts.example.com
       - equal:
           path: spec.rules[0].http.paths[0].path
-          value: /
+          value: /sts/
       - equal:
           path: spec.rules[0].http.paths[0].pathType
           value: Prefix
+
+  - it: should route only the exchange endpoint by default
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+    asserts:
+      - lengthEqual:
+          path: spec.rules[0].http.paths
+          count: 1
+      - notMatchRegex:
+          path: spec.rules[0].http.paths[0].path
+          pattern: ^/$
+
+  - it: should honor explicitly widened paths
+    template: ingress.yaml
+    set:
+      ingress.enabled: true
+      ingress.hosts:
+        - host: sts.example.com
+          paths:
+            - path: /
+              pathType: Prefix
+    asserts:
+      - equal:
+          path: spec.rules[0].http.paths[0].path
+          value: /
 
   - it: should reference service in backend
     template: ingress.yaml
@@ -257,6 +283,77 @@ tests:
       - equal:
           path: spec.rules[0].backendRefs[0].port
           value: 9090
+
+  - it: should route only the exchange endpoint by default
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+    asserts:
+      - lengthEqual:
+          path: spec.rules[0].matches
+          count: 1
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+      - equal:
+          path: spec.rules[0].matches[0].path.value
+          value: /sts/
+
+  - it: should render every configured path match
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+      httproute.paths:
+        - path: /sts/
+          type: PathPrefix
+        - path: /health
+          type: Exact
+    asserts:
+      - lengthEqual:
+          path: spec.rules[0].matches
+          count: 2
+      - equal:
+          path: spec.rules[0].matches[1].path.type
+          value: Exact
+      - equal:
+          path: spec.rules[0].matches[1].path.value
+          value: /health
+
+  - it: should default the match type to PathPrefix
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+      httproute.paths:
+        - path: /sts/
+    asserts:
+      - equal:
+          path: spec.rules[0].matches[0].path.type
+          value: PathPrefix
+
+  - it: should fail when paths is empty
+    template: httproute.yaml
+    set:
+      httproute.enabled: true
+      httproute.parentRefs:
+        - name: my-gateway
+      httproute.hostnames:
+        - github-sts.example.com
+      httproute.paths: []
+    asserts:
+      - failedTemplate:
+          errorMessage: "httproute.paths must list at least one match \u2014 Gateway API reads a rule with no matches as matching every path, which would publish /health, /ready and /metrics alongside the exchange endpoint"
 
   - it: should set HTTPRoute annotations
     template: httproute.yaml

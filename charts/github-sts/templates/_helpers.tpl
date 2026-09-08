@@ -311,6 +311,146 @@ else
 fi
 {{- end }}
 
+{{/*
+Normalized instance list for one logical app. An app is backed either by a
+single GitHub App (`appId` / `existingSecret`) or by a pool of several
+(`instances`); the server treats the first form as a pool of one, and so does
+this helper, so every template iterates one shape instead of branching.
+
+Each element carries the private key's location in both forms the templates
+need: `relPath` for the volume item, `keyPath` for the ConfigMap.
+
+Pool members get their own `<appId>/` directory under the app mount. The
+directory is keyed on `appId` rather than the instance name because `appId` is
+what the server requires to be unique within a pool, and because an instance
+name may legally contain `/`, which would turn one path segment into two.
+
+Usage:
+  {{ include "github-sts.appInstances" (dict "name" $appName "app" $appConfig) | fromYamlArray }}
+*/}}
+{{- define "github-sts.appInstances" -}}
+{{- $mountPath := printf "/etc/github-sts/apps/%s" .name -}}
+{{- $app := .app -}}
+{{- if $app.instances -}}
+{{- range $app.instances }}
+{{- $appID := .appId | int64 }}
+{{- $secretKey := .secretPrivateKeyKey | default "github-app-private-key" }}
+{{- $relPath := printf "%d/%s" $appID $secretKey }}
+- name: {{ .name | default (printf "%d" $appID) | quote }}
+  appId: {{ $appID }}
+  existingSecret: {{ .existingSecret | quote }}
+  secretKey: {{ $secretKey | quote }}
+  relPath: {{ $relPath | quote }}
+  keyPath: {{ printf "%s/%s" $mountPath $relPath | quote }}
+{{- end }}
+{{- else -}}
+{{- $appID := $app.appId | int64 }}
+{{- $secretKey := $app.secretPrivateKeyKey | default "github-app-private-key" }}
+- name: {{ printf "%d" $appID | quote }}
+  appId: {{ $appID }}
+  existingSecret: {{ $app.existingSecret | quote }}
+  secretKey: {{ $secretKey | quote }}
+  relPath: {{ $secretKey | quote }}
+  keyPath: {{ printf "%s/%s" $mountPath $secretKey | quote }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether any configured app is backed by a pool of instances.
+*/}}
+{{- define "github-sts.hasPooledApp" -}}
+{{- range $appName, $app := .Values.github.apps -}}
+{{- if $app.instances -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Fail fast on app configurations the server would reject at startup, or that
+would render a Deployment referencing a Secret by an empty name. These mirror
+the server's own validation: catching them at `helm upgrade` keeps a bad value
+out of a running release instead of turning it into a CrashLoopBackOff.
+*/}}
+{{- define "github-sts.validateApps" -}}
+{{- range $appName, $app := .Values.github.apps -}}
+{{- $hasPool := gt (len ($app.instances | default list)) 0 -}}
+{{- $hasFlat := or $app.appId $app.existingSecret $app.secretPrivateKeyKey -}}
+{{- if and $hasPool $hasFlat -}}
+{{- fail (printf "github.apps.%s: appId/existingSecret/secretPrivateKeyKey and instances are mutually exclusive — a pooled app carries its credentials per instance" $appName) -}}
+{{- end -}}
+{{- if not (or $hasPool $hasFlat) -}}
+{{- fail (printf "github.apps.%s: set appId and existingSecret (one GitHub App), or instances (a pool of several)" $appName) -}}
+{{- end -}}
+{{- if $hasPool -}}
+{{- $seenID := dict -}}
+{{- $seenName := dict -}}
+{{- range $i, $inst := $app.instances -}}
+{{- $label := $inst.name | default (printf "#%d" $i) -}}
+{{- if not $inst.appId -}}
+{{- fail (printf "github.apps.%s.instances[%d]: appId is required" $appName $i) -}}
+{{- end -}}
+{{- if not $inst.existingSecret -}}
+{{- fail (printf "github.apps.%s: instance %s: existingSecret is required — the chart never creates the Secret holding a private key" $appName $label) -}}
+{{- end -}}
+{{- if $inst.name -}}
+{{- if gt (len $inst.name) 100 -}}
+{{- fail (printf "github.apps.%s: instance %s: name exceeds maximum length of 100 (it becomes a Prometheus label value)" $appName $label) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-zA-Z0-9._/-]+$" $inst.name) -}}
+{{- fail (printf "github.apps.%s: instance %s: name must match [a-zA-Z0-9._/-]+ (it becomes a Prometheus label value)" $appName $label) -}}
+{{- end -}}
+{{- end -}}
+{{- $id := printf "%d" ($inst.appId | int64) -}}
+{{- if hasKey $seenID $id -}}
+{{- fail (printf "github.apps.%s: duplicate appId %s within pool (instances %s and %s)" $appName $id (get $seenID $id) $label) -}}
+{{- end -}}
+{{- $_ := set $seenID $id $label -}}
+{{- $effective := $inst.name | default $id -}}
+{{- if hasKey $seenName $effective -}}
+{{- fail (printf "github.apps.%s: instance name %q used by both instances %s and %s" $appName $effective (get $seenName $effective) $label) -}}
+{{- end -}}
+{{- $_ := set $seenName $effective $label -}}
+{{- end -}}
+{{- else -}}
+{{- if not $app.appId -}}
+{{- fail (printf "github.apps.%s: appId is required" $appName) -}}
+{{- end -}}
+{{- if not $app.existingSecret -}}
+{{- fail (printf "github.apps.%s: existingSecret is required — the chart never creates the Secret holding a private key" $appName) -}}
+{{- end -}}
+{{- end -}}
+{{- with $app.rotation -}}
+{{- if not $hasPool -}}
+{{- fail (printf "github.apps.%s: rotation has no effect without instances, and the server rejects it on a single-App config" $appName) -}}
+{{- end -}}
+{{- with .strategy -}}
+{{- if not (has . (list "round_robin" "rate_limit_aware")) -}}
+{{- fail (printf "github.apps.%s: rotation.strategy must be round_robin or rate_limit_aware (got %q)" $appName .) -}}
+{{- end -}}
+{{- end -}}
+{{- with .minRemainingPct -}}
+{{- if or (lt (float64 .) 0.0) (ge (float64 .) 100.0) -}}
+{{- fail (printf "github.apps.%s: rotation.minRemainingPct must be in [0,100) (got %v)" $appName .) -}}
+{{- end -}}
+{{- end -}}
+{{- with .maxAttempts -}}
+{{- if lt (int64 .) 1 -}}
+{{- fail (printf "github.apps.%s: rotation.maxAttempts must be >= 1 (got %v)" $appName .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- with $app.policyResolution -}}
+{{- if and (not $app.orgPolicyRepo) (has . (list "org_first" "org_only")) -}}
+{{- fail (printf "github.apps.%s: policyResolution %q requires orgPolicyRepo — both modes read the organization policy repository" $appName .) -}}
+{{- end -}}
+{{- if not (has . (list "org_first" "repo_first" "org_only")) -}}
+{{- fail (printf "github.apps.%s: policyResolution must be one of org_first, repo_first, org_only (got %q)" $appName .) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
 {{/* Secret-backed bearer token for an endpoint test hook. */}}
 {{- define "github-sts.testEnv" -}}
 env:

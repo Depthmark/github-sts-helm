@@ -1,6 +1,6 @@
 # github-sts-helm
 
-Helm chart for deploying [github-sts](https://github.com/Depthmark/github-sts) — a Python-based Security Token Service (STS) that exchanges OIDC tokens for short-lived, scoped GitHub installation tokens.
+Helm chart for deploying [github-sts](https://github.com/Depthmark/github-sts) — a Security Token Service (STS) that exchanges OIDC tokens for short-lived, scoped GitHub installation tokens.
 
 ## Quick Start
 

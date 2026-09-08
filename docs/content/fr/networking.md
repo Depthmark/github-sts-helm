@@ -25,7 +25,7 @@ ingress:
   hosts:
     - host: sts.example.com
       paths:
-        - path: /
+        - path: /sts/
           pathType: Prefix
   tls:
     - secretName: github-sts-tls
@@ -34,6 +34,10 @@ ingress:
 ```
 
 La valeur par défaut de `hosts` contient l'hôte d'exemple `github-sts.example.com`. Remplacez-le : activer `ingress` sans modifier `hosts` publie une route pour un nom d'hôte qui ne vous appartient pas.
+
+Gardez le chemin restreint. Le conteneur sert `/sts/exchange` en même temps que `/health`, `/ready` et `/metrics` sur un seul port, et la route est la seule chose qui décide lesquels de ces chemins Internet peut atteindre. Le défaut `/sts/` avec `pathType: Prefix` publie le point d'entrée d'échange et s'arrête là ; les trois autres restent joignables depuis l'intérieur du cluster, où se trouvent déjà les sondes et Prometheus.
+
+Un chemin `/` les publie tous les quatre. `/metrics` n'est pas authentifié tant qu'`endpointAuth.metricsToken` n'est pas défini, et il expose le nombre d'échanges par application ainsi que l'état du quota de l'API GitHub — soit une lecture anonyme de l'usage du service et de sa marge restante. `/health` et `/ready` deviennent un signal de vivacité anonyme pour quiconque observe ; `endpointAuth.healthToken` ferme `/health`, et `/ready` n'est jamais authentifié. N'élargissez le chemin qu'après avoir décidé que vous voulez tout cela sur le nom d'hôte public.
 
 Configurez TLS. Les clients envoient le jeton OIDC comme identifiant porteur dans l'en-tête `Authorization` : un Ingress sans bloc `tls` fait donc circuler en clair une assertion d'identité signée, susceptible d'être capturée et rejouée jusqu'à son expiration.
 
@@ -50,10 +54,17 @@ httproute:
       sectionName: https
   hostnames:
     - sts.example.com
+  paths:
+    - path: /sts/
+      type: PathPrefix
   port: 8080
 ```
 
-La route générée reconnaît le préfixe de chemin `/` et achemine vers le Service sur `httproute.port`. Les entrées de `parentRefs` acceptent `name`, et facultativement `kind`, `group`, `namespace` et `sectionName`.
+La route générée achemine vers le Service sur `httproute.port` et ne reconnaît que les chemins listés dans `httproute.paths`. Le défaut applique la même restriction que l'Ingress, et pour la même raison : une seule correspondance `PathPrefix` sur `/sts/`, qui laisse `/health`, `/ready` et `/metrics` hors de la Gateway. Chaque entrée prend un `path` et un `type` valant `PathPrefix` ou `Exact`.
+
+La liste ne peut pas être vide. Gateway API interprète une règle sans `matches` comme correspondant à tous les chemins : une liste vide publierait donc tout en silence, et le chart refuse de se générer plutôt que de le faire.
+
+Les entrées de `parentRefs` acceptent `name`, et facultativement `kind`, `group`, `namespace` et `sectionName`.
 
 ## Restreindre le trafic
 

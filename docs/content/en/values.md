@@ -17,7 +17,7 @@ Required. A deployment with no app configured starts, serves `/health`, and reje
 
 | Value | Default | Effect |
 |---|---|---|
-| `github.apps` | `{}` | Map of app name to app configuration. The map key is the app name a client sends as `app=`, and the directory a trust policy is read from. Each entry takes `appId`, `existingSecret`, and optionally `secretPrivateKeyKey` and `orgPolicyRepo`. |
+| `github.apps` | `{}` | Map of app name to app configuration. The map key is the app name a client sends as `app=`, and the directory a trust policy is read from. Each entry is backed by one GitHub App (`appId` and `existingSecret`) or by a pool of several (`instances`), and optionally takes `secretPrivateKeyKey`, `orgPolicyRepo`, `policyResolution`, and `rotation`. |
 
 Each entry accepts the following fields:
 
@@ -25,12 +25,89 @@ Each entry accepts the following fields:
 
 | Field | Required | Effect |
 |---|---|---|
-| `appId` | Yes | Numeric GitHub App ID. Written to the ConfigMap as an integer. |
-| `existingSecret` | Yes | Name of a Secret in the release namespace holding the App's private key. The chart never creates this Secret and no value accepts key material. |
+| `appId` | One of `appId` / `instances` | Numeric GitHub App ID. Written to the ConfigMap as an integer. |
+| `existingSecret` | With `appId` | Name of a Secret in the release namespace holding the App's private key. The chart never creates this Secret and no value accepts key material. |
 | `secretPrivateKeyKey` | No | Key inside that Secret. Defaults to `github-app-private-key`. Only this key is projected into the pod. |
+| `instances` | One of `appId` / `instances` | List of GitHub Apps backing this one name. See [Pool several GitHub Apps behind one name](#pool-several-github-apps-behind-one-name) below. Mutually exclusive with `appId`. |
+| `rotation` | No | Instance selection settings. Only valid alongside `instances`; the server rejects it on a single-App entry, and so does the chart. |
 | `orgPolicyRepo` | No | Repository that holds organization-level trust policies, typically `.github`. Omit to resolve policies only from the target repository. |
+| `policyResolution` | No | Which repository wins when both hold a policy for the same identity. See [Choose which policy wins a collision](#choose-which-policy-wins-a-collision) below. Only meaningful alongside `orgPolicyRepo`. |
 
 <!-- values:resume -->
+
+### Pool several GitHub Apps behind one name
+
+An entry backed by `instances` spreads exchanges for that app name across several physical GitHub Apps, each with its own primary rate-limit budget. Callers keep sending the one logical name in `app=`; which instance served a request appears only in the `instance` metric label and in the audit log. [Configuration]({{< relref "/reference/configuration" >}}) documents how the server selects and fails over between them.
+
+```yaml
+github:
+  apps:
+    checkout:
+      orgPolicyRepo: .github
+      instances:
+        - name: checkout-1
+          appId: "111111"
+          existingSecret: github-sts-checkout-1
+        - name: checkout-2
+          appId: "222222"
+          existingSecret: github-sts-checkout-2
+      rotation:
+        strategy: round_robin
+        maxAttempts: 2
+```
+
+Pooled apps need a server image that understands `apps.<name>.instances`. An older image parses the key leniently and then starts with no credentials for that app, so check the image before converting an entry.
+
+<!-- values:pause -->
+
+Each entry in `instances` accepts:
+
+| Field | Required | Effect |
+|---|---|---|
+| `appId` | Yes | Numeric GitHub App ID. Must be unique within the pool; the chart rejects a duplicate. |
+| `existingSecret` | Yes | Secret holding this instance's private key. Instances may share a Secret as long as their `appId`s differ. |
+| `secretPrivateKeyKey` | No | Key inside that Secret. Defaults to `github-app-private-key`. |
+| `name` | No | Label for this instance in metrics and audit events. Defaults to `appId`. It becomes a Prometheus label value, so it is limited to 100 characters from `[a-zA-Z0-9._/-]`. |
+
+And `rotation` accepts:
+
+| Field | Default | Effect |
+|---|---|---|
+| `strategy` | `round_robin` | `round_robin` or `rate_limit_aware`. `rate_limit_aware` is accepted by the server but not yet implemented: a pool set to it behaves like `round_robin` and the server logs a warning at startup. |
+| `minRemainingPct` | unset | `rate_limit_aware` only, in `[0, 100)`. No effect today, for the reason above. |
+| `maxAttempts` | unset | Bound on how many instances one request tries before failing. Left unset, the server defaults it to the pool size, capped at 3. |
+
+<!-- values:resume -->
+
+Every instance in a pool must be installed with the same permissions and repository access. The server treats pool members as interchangeable and does not verify that they are, so a mismatched instance shows up as intermittent `422` responses on the fraction of requests that land on it.
+
+### Choose which policy wins a collision
+
+With `orgPolicyRepo` set, an identity can be defined twice: once in the repository making the request, once in the organization's policy repository. `policyResolution` decides which one the server reads.
+
+<!-- values:pause -->
+
+| Mode | Effect |
+|---|---|
+| `org_first` | Reads the organization repository first and falls back to the requesting repository. The organization wins a collision. This is the default whenever `orgPolicyRepo` is set, and the right choice for a central policy repository meant as the source of truth. |
+| `repo_first` | Reads the requesting repository first and falls back to the organization repository. The repository wins a collision, so a repository owner can override central policy. Legacy behaviour, kept for compatibility. |
+| `org_only` | Reads the organization repository only. The requesting repository is never consulted, which forbids self-service policies outright. |
+
+<!-- values:resume -->
+
+`org_first` and `org_only` both read the organization repository, so the chart rejects either one on an entry with no `orgPolicyRepo` rather than letting the server fail the same check at startup. `repo_first` is accepted without one, but has no effect: with no organization repository to fall back to, only the requesting repository can be consulted.
+
+```yaml
+github:
+  apps:
+    release:
+      appId: "12345"
+      existingSecret: github-sts-release
+      orgPolicyRepo: .github
+      policyResolution: org_only
+```
+
+Leaving `policyResolution` unset writes no `policy_resolution` key, so the server applies its own default. [Trust Policies]({{< relref "/concepts/trust-policies" >}}) covers what each mode means for policy authors.
 
 ## Release identity
 
@@ -139,11 +216,12 @@ See [Networking]({{< relref "networking" >}}) for worked examples.
 | `ingress.enabled` | `false` | Renders an Ingress. |
 | `ingress.className` | `""` | `ingressClassName` on the Ingress. |
 | `ingress.annotations` | `{}` | Ingress annotations, such as `cert-manager.io/cluster-issuer`. |
-| `ingress.hosts` | host `github-sts.example.com`, path `/` with `pathType: Prefix` | Host and path rules. Replace the placeholder host before enabling. |
+| `ingress.hosts` | host `github-sts.example.com`, path `/sts/` with `pathType: Prefix` | Host and path rules. Replace the placeholder host before enabling. The default path publishes the exchange endpoint only; `/` also publishes `/health`, `/ready`, and `/metrics`. |
 | `ingress.tls` | `[]` | TLS blocks. An Ingress with no TLS block serves the exchange endpoint over plaintext HTTP, which exposes the bearer OIDC token in transit. |
 | `httproute.enabled` | `false` | Renders a Gateway API HTTPRoute. Requires the Gateway API CRDs. |
 | `httproute.parentRefs` | `[]` | Gateways the route attaches to. |
 | `httproute.hostnames` | `[]` | Hostnames the route matches. |
+| `httproute.paths` | path `/sts/` with `type: PathPrefix` | Path matches the route forwards. Scoped like `ingress.hosts`. May not be empty: Gateway API reads a rule with no matches as matching every path, so the chart fails to render instead. |
 | `httproute.port` | `8080` | Backend Service port the route forwards to. |
 | `httproute.annotations` | `{}` | HTTPRoute annotations. |
 

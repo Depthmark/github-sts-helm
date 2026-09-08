@@ -65,6 +65,33 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
 > **Note:** Each app's private key must be stored in an existing Kubernetes Secret.
 > The app name is used in trust policy paths: `{policy.basePath}/{appName}/{identity}.sts.yaml`
 
+### App Pools (several GitHub Apps behind one name)
+
+An entry under `github.apps` can be backed by a pool of GitHub Apps instead of one. Each instance has its own primary rate-limit budget, so the exchange ceiling for that app name scales with the pool, and the server fails over to another instance when the one it tried is rate-limited or unreachable. Callers keep sending the single logical name in `app=`.
+
+```yaml
+github:
+  apps:
+    checkout:
+      orgPolicyRepo: .github
+      instances:
+        - name: checkout-1          # optional; defaults to appId
+          appId: "111111"
+          existingSecret: checkout-1-credentials
+        - name: checkout-2
+          appId: "222222"
+          existingSecret: checkout-2-credentials
+      rotation:
+        strategy: round_robin       # round_robin (default) | rate_limit_aware
+        maxAttempts: 2              # bound failover fan-out per request
+```
+
+`instances` and `appId` are mutually exclusive on one entry; the chart fails the render if both are set. Each instance's key is projected under `/etc/github-sts/apps/{app}/{appId}/{key}`, so instances may reuse a key name or share a Secret.
+
+Pool support is newer than the server release this chart's `appVersion` pins. An older image ignores `instances:` and then starts with no credentials for that app, so move `image.tag` or `image.digest` to a build with pool support first.
+
+Every instance in a pool must be installed with identical permissions and repository access. The server treats members as interchangeable and does not verify that they are, so a mismatched instance shows up as intermittent `422` responses. Alert on `githubsts_app_pool_exhausted_total`, which increments when every instance in a pool failed one request.
+
 ## How It Works
 
 ```
@@ -199,6 +226,7 @@ jobs:
 | httproute.enabled | bool | `false` | Enable HTTPRoute |
 | httproute.hostnames | list | `[]` | Hostnames for routing |
 | httproute.parentRefs | list | `[]` | Gateway parent references |
+| httproute.paths | list | `[{"path":"/sts/","type":"PathPrefix"}]` | Path matches routed to the Service. Scoped the same way as `ingress.hosts`: the default routes the exchange endpoint only and keeps `/health`, `/ready` and `/metrics` off the Gateway. Each entry takes a `path` and a `type` (`PathPrefix` or `Exact`). The list may not be empty — Gateway API reads a rule with no matches as matching every path. |
 | httproute.port | int | `8080` | Port to route traffic to |
 | image.digest | string | `""` | Image digest in `sha256:<hex>` form. When set, the chart renders `repository@digest` and `tag` is ignored. Pin by digest in production so the deployed bytes are immutable and verifiable by cosign / Kyverno `verifyImages` / Sigstore policy-controller. Tag-based pulls can silently change underneath you when a tag is overwritten upstream; digest pulls cannot. Use `crane digest <image:tag>` (or `docker buildx imagetools inspect`) to resolve a tag to its digest before setting this. |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy. With a tag pull, `IfNotPresent` is fine; with a digest pull, the kubelet treats the digest as immutable and skips re-pull regardless of policy. |
@@ -209,7 +237,7 @@ jobs:
 | ingress.annotations | object | `{}` | Ingress annotations |
 | ingress.className | string | `""` | Ingress class name |
 | ingress.enabled | bool | `false` | Enable Ingress |
-| ingress.hosts | list | `[{"host":"github-sts.example.com","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress host rules |
+| ingress.hosts | list | `[{"host":"github-sts.example.com","paths":[{"path":"/sts/","pathType":"Prefix"}]}]` | Ingress host rules. The default publishes the exchange endpoint and nothing else: `/sts/` with `pathType: Prefix` matches `/sts/exchange` and leaves `/health`, `/ready` and `/metrics` reachable only from inside the cluster. Widening a path to `/` puts all three on the public hostname — `/metrics` is unauthenticated unless `endpointAuth.metricsToken` is set, and it carries per-app exchange counts and GitHub API rate limit state. |
 | ingress.tls | list | `[]` | TLS configuration |
 | jti.backend | string | `"memory"` | Backend: "memory" or "redis" |
 | jti.redisUrl | string | `""` | Required if backend=redis |
@@ -358,6 +386,15 @@ helm install github-sts oci://ghcr.io/depthmark/charts/github-sts \
   --set httproute.parentRefs[0].name="my-gateway" \
   --set httproute.hostnames[0]="github-sts.example.com"
 ```
+
+### Published paths
+
+Both routes default to the exchange endpoint alone — `/sts/` as a prefix match —
+and neither publishes `/health`, `/ready`, or `/metrics`. The container serves
+all four on one port, so the route is what decides which of them are reachable
+from outside the cluster. Widening `ingress.hosts[].paths` or `httproute.paths`
+to `/` puts the unauthenticated `/metrics` endpoint, and its per-app exchange
+counts and rate limit state, on the public hostname.
 
 ## TLS & mTLS
 

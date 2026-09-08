@@ -1,0 +1,31 @@
+# CI test values: a logical app backed by a pool of GitHub App instances,
+# alongside a single-App entry, so both forms render in one release.
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"
+    checkout:
+      orgPolicyRepo: ".github"
+      policyResolution: "org_only"
+      instances:
+        - name: checkout-1
+          appId: 111111
+          existingSecret: "checkout-1-credentials"
+        - name: checkout-2
+          appId: 222222
+          existingSecret: "checkout-2-credentials"
+          secretPrivateKeyKey: "private-key.pem"
+        - appId: 333333
+          existingSecret: "checkout-3-credentials"
+      rotation:
+        strategy: round_robin
+        maxAttempts: 2
+    # A second pooled app with no rotation block, so the default-strategy path
+    # renders too.
+    release:
+      instances:
+        - appId: 444444
+          existingSecret: "release-1-credentials"
+        - appId: 555555
+          existingSecret: "release-2-credentials"

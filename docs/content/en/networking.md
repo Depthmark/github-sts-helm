@@ -24,7 +24,7 @@ ingress:
   hosts:
     - host: sts.example.com
       paths:
-        - path: /
+        - path: /sts/
           pathType: Prefix
   tls:
     - secretName: github-sts-tls
@@ -33,6 +33,10 @@ ingress:
 ```
 
 The `hosts` default carries the placeholder `github-sts.example.com`. Replace it: enabling `ingress` without editing `hosts` publishes a route for a hostname you do not own.
+
+Leave the path scoped. The container serves `/sts/exchange` alongside `/health`, `/ready`, and `/metrics` on one port, and the route is the only thing that decides which of them the internet can reach. The default `/sts/` with `pathType: Prefix` publishes the exchange endpoint and stops there; the other three stay reachable from inside the cluster, where the probes and Prometheus already are.
+
+A path of `/` publishes all four. `/metrics` is unauthenticated unless `endpointAuth.metricsToken` is set, and it carries per-app exchange counts and the GitHub API rate limit state — an unauthenticated read of how the service is used and how close it is to its quota. `/health` and `/ready` turn into an anonymous liveness signal for anyone watching; `endpointAuth.healthToken` closes `/health`, and `/ready` is never authenticated. Widen the path only when you have decided you want those on the public hostname.
 
 Configure TLS. Clients send the OIDC token as a bearer credential in the `Authorization` header, so an Ingress with no `tls` block puts a signed identity assertion on the wire in plaintext, where it can be captured and replayed until it expires.
 
@@ -49,10 +53,17 @@ httproute:
       sectionName: https
   hostnames:
     - sts.example.com
+  paths:
+    - path: /sts/
+      type: PathPrefix
   port: 8080
 ```
 
-The rendered route matches the path prefix `/` and forwards to the Service on `httproute.port`. `parentRefs` entries accept `name`, and optionally `kind`, `group`, `namespace`, and `sectionName`.
+The rendered route forwards to the Service on `httproute.port`, matching only the paths in `httproute.paths`. The default is the same scoping the Ingress gets, and for the same reason: one `PathPrefix` match on `/sts/`, which leaves `/health`, `/ready`, and `/metrics` off the Gateway. Each entry takes a `path` and a `type` of `PathPrefix` or `Exact`.
+
+The list may not be empty. Gateway API reads a rule with no `matches` as matching every path, so an empty list would quietly publish everything; the chart fails to render instead.
+
+`parentRefs` entries accept `name`, and optionally `kind`, `group`, `namespace`, and `sectionName`.
 
 ## Restrict traffic
 

@@ -18,7 +18,7 @@ Obligatoire. Un déploiement sans app configurée démarre, sert `/health` et re
 
 | Valeur | Défaut | Effet |
 |---|---|---|
-| `github.apps` | `{}` | Map associant un nom d'app à sa configuration. La clé de la map est le nom d'app envoyé par un client dans `app=`, et le répertoire depuis lequel une politique de confiance est lue. Chaque entrée accepte `appId`, `existingSecret`, et facultativement `secretPrivateKeyKey` et `orgPolicyRepo`. |
+| `github.apps` | `{}` | Map associant un nom d'app à sa configuration. La clé de la map est le nom d'app envoyé par un client dans `app=`, et le répertoire depuis lequel une politique de confiance est lue. Chaque entrée est adossée à une seule GitHub App (`appId` et `existingSecret`) ou à un pool de plusieurs (`instances`), et accepte facultativement `secretPrivateKeyKey`, `orgPolicyRepo`, `policyResolution` et `rotation`. |
 
 Chaque entrée accepte les champs suivants :
 
@@ -26,12 +26,89 @@ Chaque entrée accepte les champs suivants :
 
 | Champ | Obligatoire | Effet |
 |---|---|---|
-| `appId` | Oui | Identifiant numérique de la GitHub App. Écrit dans le ConfigMap sous forme d'entier. |
-| `existingSecret` | Oui | Nom d'un Secret du namespace de la release contenant la clé privée de l'App. Le chart ne crée jamais ce Secret et aucune valeur n'accepte de matériel cryptographique. |
+| `appId` | `appId` ou `instances` | Identifiant numérique de la GitHub App. Écrit dans le ConfigMap sous forme d'entier. |
+| `existingSecret` | Avec `appId` | Nom d'un Secret du namespace de la release contenant la clé privée de l'App. Le chart ne crée jamais ce Secret et aucune valeur n'accepte de matériel cryptographique. |
 | `secretPrivateKeyKey` | Non | Clé à l'intérieur de ce Secret. Vaut `github-app-private-key` par défaut. Seule cette clé est projetée dans le pod. |
+| `instances` | `appId` ou `instances` | Liste des GitHub Apps adossées à ce seul nom. Voir [Regrouper plusieurs GitHub Apps sous un seul nom](#regrouper-plusieurs-github-apps-sous-un-seul-nom) ci-dessous. Exclusif avec `appId`. |
+| `rotation` | Non | Paramètres de sélection d'instance. Valide uniquement avec `instances` : le serveur le rejette sur une entrée à une seule App, et le chart aussi. |
 | `orgPolicyRepo` | Non | Dépôt contenant les politiques de confiance au niveau de l'organisation, typiquement `.github`. Omettez-le pour ne résoudre les politiques que depuis le dépôt cible. |
+| `policyResolution` | Non | Détermine quel dépôt l'emporte lorsque les deux contiennent une politique pour la même identité. Voir [Choisir quelle politique l'emporte en cas de collision](#choisir-quelle-politique-lemporte-en-cas-de-collision) ci-dessous. N'a de sens qu'avec `orgPolicyRepo`. |
 
 <!-- values:resume -->
+
+### Regrouper plusieurs GitHub Apps sous un seul nom
+
+Une entrée adossée à `instances` répartit les échanges de ce nom d'app sur plusieurs GitHub Apps physiques, chacune disposant de son propre quota de limitation de débit principal. Les clients continuent d'envoyer le seul nom logique dans `app=` ; l'instance ayant servi une requête n'apparaît que dans l'étiquette de métrique `instance` et dans le journal d'audit. [Configuration]({{< relref "/reference/configuration" >}}) documente la façon dont le serveur sélectionne une instance et bascule vers une autre.
+
+```yaml
+github:
+  apps:
+    checkout:
+      orgPolicyRepo: .github
+      instances:
+        - name: checkout-1
+          appId: "111111"
+          existingSecret: github-sts-checkout-1
+        - name: checkout-2
+          appId: "222222"
+          existingSecret: github-sts-checkout-2
+      rotation:
+        strategy: round_robin
+        maxAttempts: 2
+```
+
+Les apps en pool exigent une image serveur qui comprend `apps.<name>.instances`. Une image plus ancienne analyse la clé sans erreur puis démarre sans identifiants pour cette app : vérifiez l'image avant de convertir une entrée.
+
+<!-- values:pause -->
+
+Chaque entrée de `instances` accepte :
+
+| Champ | Obligatoire | Effet |
+|---|---|---|
+| `appId` | Oui | Identifiant numérique de la GitHub App. Doit être unique au sein du pool ; le chart rejette un doublon. |
+| `existingSecret` | Oui | Secret contenant la clé privée de cette instance. Plusieurs instances peuvent partager un Secret tant que leurs `appId` diffèrent. |
+| `secretPrivateKeyKey` | Non | Clé à l'intérieur de ce Secret. Vaut `github-app-private-key` par défaut. |
+| `name` | Non | Étiquette de cette instance dans les métriques et les événements d'audit. Vaut `appId` par défaut. Elle devient une valeur d'étiquette Prometheus : 100 caractères au maximum, pris dans `[a-zA-Z0-9._/-]`. |
+
+Et `rotation` accepte :
+
+| Champ | Défaut | Effet |
+|---|---|---|
+| `strategy` | `round_robin` | `round_robin` ou `rate_limit_aware`. `rate_limit_aware` est accepté par le serveur mais pas encore implémenté : un pool ainsi configuré se comporte comme `round_robin` et le serveur émet un avertissement au démarrage. |
+| `minRemainingPct` | non défini | `rate_limit_aware` uniquement, dans `[0, 100)`. Sans effet aujourd'hui, pour la raison ci-dessus. |
+| `maxAttempts` | non défini | Nombre maximal d'instances qu'une requête essaie avant d'échouer. Laissé non défini, le serveur le fixe à la taille du pool, plafonnée à 3. |
+
+<!-- values:resume -->
+
+Toutes les instances d'un pool doivent être installées avec les mêmes permissions et le même accès aux dépôts. Le serveur considère les membres d'un pool comme interchangeables et ne vérifie pas qu'ils le sont : une instance mal configurée se manifeste par des réponses `422` intermittentes, sur la fraction des requêtes qui lui parviennent.
+
+### Choisir quelle politique l'emporte en cas de collision
+
+Avec `orgPolicyRepo` défini, une identité peut être déclarée deux fois : une fois dans le dépôt à l'origine de la requête, une fois dans le dépôt de politiques de l'organisation. `policyResolution` détermine laquelle le serveur lit.
+
+<!-- values:pause -->
+
+| Mode | Effet |
+|---|---|
+| `org_first` | Lit d'abord le dépôt de l'organisation, puis se rabat sur le dépôt à l'origine de la requête. L'organisation l'emporte en cas de collision. C'est la valeur par défaut dès que `orgPolicyRepo` est défini, et le bon choix pour un dépôt de politiques central faisant autorité. |
+| `repo_first` | Lit d'abord le dépôt à l'origine de la requête, puis se rabat sur celui de l'organisation. Le dépôt l'emporte en cas de collision : son propriétaire peut donc contourner la politique centrale. Comportement historique, conservé pour compatibilité. |
+| `org_only` | Ne lit que le dépôt de l'organisation. Le dépôt à l'origine de la requête n'est jamais consulté, ce qui interdit purement et simplement les politiques en libre-service. |
+
+<!-- values:resume -->
+
+`org_first` et `org_only` lisent tous deux le dépôt de l'organisation : le chart rejette donc l'un comme l'autre sur une entrée sans `orgPolicyRepo`, plutôt que de laisser le serveur échouer sur le même contrôle au démarrage. `repo_first` est accepté sans `orgPolicyRepo`, mais reste sans effet : sans dépôt d'organisation vers lequel se rabattre, seul le dépôt à l'origine de la requête peut être consulté.
+
+```yaml
+github:
+  apps:
+    release:
+      appId: "12345"
+      existingSecret: github-sts-release
+      orgPolicyRepo: .github
+      policyResolution: org_only
+```
+
+Laisser `policyResolution` non défini n'écrit aucune clé `policy_resolution` : le serveur applique alors sa propre valeur par défaut. [Politiques de confiance]({{< relref "/concepts/trust-policies" >}}) détaille ce que chaque mode implique pour les auteurs de politiques.
 
 ## Identité de la release
 
@@ -140,11 +217,12 @@ Voir [Réseau]({{< relref "networking" >}}) pour des exemples complets.
 | `ingress.enabled` | `false` | Génère un Ingress. |
 | `ingress.className` | `""` | `ingressClassName` de l'Ingress. |
 | `ingress.annotations` | `{}` | Annotations de l'Ingress, par exemple `cert-manager.io/cluster-issuer`. |
-| `ingress.hosts` | hôte `github-sts.example.com`, chemin `/` avec `pathType: Prefix` | Règles d'hôtes et de chemins. Remplacez l'hôte d'exemple avant d'activer l'Ingress. |
+| `ingress.hosts` | hôte `github-sts.example.com`, chemin `/sts/` avec `pathType: Prefix` | Règles d'hôtes et de chemins. Remplacez l'hôte d'exemple avant d'activer l'Ingress. Le chemin par défaut ne publie que le point d'entrée d'échange ; `/` publie aussi `/health`, `/ready` et `/metrics`. |
 | `ingress.tls` | `[]` | Blocs TLS. Un Ingress sans bloc TLS expose le point d'entrée d'échange en HTTP clair, ce qui laisse passer le jeton porteur OIDC en clair sur le réseau. |
 | `httproute.enabled` | `false` | Génère une HTTPRoute Gateway API. Exige les CRD Gateway API. |
 | `httproute.parentRefs` | `[]` | Gateways auxquelles la route se rattache. |
 | `httproute.hostnames` | `[]` | Noms d'hôtes que la route reconnaît. |
+| `httproute.paths` | chemin `/sts/` avec `type: PathPrefix` | Chemins que la route achemine. Restreints comme `ingress.hosts`. Ne peut pas être vide : Gateway API interprète une règle sans correspondance comme correspondant à tous les chemins, le chart refuse donc de se générer. |
 | `httproute.port` | `8080` | Port du Service de destination vers lequel la route achemine. |
 | `httproute.annotations` | `{}` | Annotations de la HTTPRoute. |
 
