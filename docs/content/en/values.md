@@ -283,10 +283,13 @@ Both policy kinds default to off. Enable the one your CNI implements, or both.
 
 ## Policy bundles
 
-Optional, and newer than the server release this chart's `appVersion` pins. A bundle layers Rego on top of the YAML trust policy. The server evaluates every applicable bundle after the trust policy allows a request and before it mints a GitHub installation token, and a deny from any of them rejects the exchange.
+A bundle layers Rego on top of the YAML trust policy. The server evaluates every applicable bundle after the trust policy allows a request and before it mints a GitHub installation token, and a deny from any of them rejects the exchange.
+
+`bundleEnforcement` is not optional in the way the bundle list is: the server requires the key and refuses to start without a valid value, so the chart always writes it.
 
 | Value | Default | Effect |
 |---|---|---|
+| `bundleEnforcement` | `"optional"` | Enforcement mode, `optional` or `required`. `optional` runs whatever `bundles` lists and falls back to YAML-only authorization when the list is empty. `required` makes the Rego layer a startup precondition: at least one bundle configured, an `expected_policy_revision` per entry, an `oci://` ref pinned to `@sha256:` plus 64 hexadecimal characters, `allow_mutable_ref` and `cosign.skip_verification` left false, and `fail_mode: closed` on any bundle applying to every app. |
 | `bundles` | `[]` | Rego bundles, passed through to the top-level `bundles:` key of the server configuration without validation or renaming. Entries therefore use the server's snake_case field names rather than the chart's camelCase. Empty means no bundle runs and the trust policy is the only gate. |
 
 ```yaml
@@ -303,15 +306,7 @@ bundles:
       certificate_oidc_issuer: https://token.actions.githubusercontent.com
 ```
 
-Check the server version before you rely on a bundle. Server `v0.0.3`, which this chart's `appVersion` pins, has no bundle support and parses its configuration leniently: it ignores the `bundles:` key, starts normally, and serves exchanges with no Rego layer. Nothing in the chart or in the pod reports that. Set `image.tag` or `image.digest` to a build that supports bundles, and confirm the pairing in [Compatibility]({{< relref "/integrations/compatibility" >}}).
-
-A server build that does support bundles also requires a top-level `bundle_enforcement` key, set to `required` or `optional`. An empty value fails startup whether or not `bundles` is set, and the chart renders no such key. Supply it through the environment:
-
-```yaml
-extraEnv:
-  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
-    value: required
-```
+The server release this chart's `appVersion` pins supports bundles. [Compatibility]({{< relref "/integrations/compatibility" >}}) lists the verified combinations.
 
 Registry authentication and cosign verification are separate settings. `registry.auth` decides whether the pod can fetch a bundle. `cosign` decides whether a fetched bundle is trusted. Setting the first does not set the second, and a bundle pulled over an authenticated connection is still unverified policy code until the cosign fields are in place.
 

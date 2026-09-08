@@ -134,15 +134,7 @@ See the [upstream documentation](https://github.com/Depthmark/github-sts#trust-p
 
 Set `bundles` to configure signed OPA/Rego bundles. Bundles are evaluated after the YAML trust policy allows and before GitHub token minting, and a deny wins across all applicable bundles.
 
-Bundle support is newer than the server release this chart's `appVersion` pins. Server v0.0.3 parses its config leniently: it ignores `bundles:`, starts, and serves exchanges with no Rego layer. Move `image.tag` or `image.digest` to a build with bundle support first.
-
-A build that supports bundles also requires a top-level `bundle_enforcement` value (`required` or `optional`) and refuses to start without one. This chart does not render that key; supply it through `extraEnv`:
-
-```yaml
-extraEnv:
-  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
-    value: required
-```
+`bundleEnforcement` sets the top-level `bundle_enforcement` value the server requires; the chart always renders it, defaulting to `optional`. Set it to `required` where a bundle is a control rather than a convenience: under `optional` an empty `bundles` list silently drops the Rego layer, while `required` refuses to start without one.
 
 ```yaml
 bundles:
@@ -210,7 +202,8 @@ jobs:
 | autoscaling.maxReplicas | int | `10` | Maximum number of replicas |
 | autoscaling.minReplicas | int | `2` | Minimum number of replicas |
 | autoscaling.targetCPUUtilizationPercentage | int | `80` | Target CPU utilization percentage |
-| bundles | list | `[]` | Signed Rego/OPA bundles evaluated after the YAML trust policy allows and before a GitHub installation token is minted. Entries are passed through to the server's top-level `bundles:` config without validation or renaming, so use the server's snake_case field names. Requires a server build with bundle support: v0.0.3 ignores the key silently and runs with no Rego layer. Such a build also requires a top-level `bundle_enforcement` value, which this chart does not render; set `GITHUBSTS_BUNDLE_ENFORCEMENT` through `extraEnv`. For a local file ref, `registry.auth.password_file`, or `cosign.public_key_ref`, mount the file with `extraVolumes` and `extraVolumeMounts` and point the field at the mounted path. |
+| bundleEnforcement | string | `"optional"` | Bundle enforcement mode: `optional` or `required`. The server requires a valid value here and refuses to start without one, so the chart always renders it. `optional` evaluates whatever `bundles` lists and falls back to YAML-only trust-policy authorization when the list is empty. `required` turns the Rego layer into a startup precondition: at least one bundle must be configured, every entry needs an `expected_policy_revision` and an `oci://` ref pinned to `@sha256:<64 hex>`, `allow_mutable_ref` and `cosign.skip_verification` must stay false, and a bundle that applies to every app (`apps: []`) must use `fail_mode: closed`. |
+| bundles | list | `[]` | Signed Rego/OPA bundles evaluated after the YAML trust policy allows and before a GitHub installation token is minted. Entries are passed through to the server's top-level `bundles:` config without validation or renaming, so use the server's snake_case field names. For a local file ref, `registry.auth.password_file`, or `cosign.public_key_ref`, mount the file with `extraVolumes` and `extraVolumeMounts` and point the field at the mounted path. |
 | commonLabels | object | `{}` | Labels to add to all deployed objects |
 | extraEnv | list | `[]` | Extra environment variables |
 | extraVolumeMounts | list | `[]` | Extra volume mounts for the container |

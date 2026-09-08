@@ -284,10 +284,13 @@ Les deux familles de politiques sont désactivées par défaut. Activez celle qu
 
 ## Bundles de politiques
 
-Facultatif, et plus récent que la version du serveur épinglée par l'`appVersion` de ce chart. Un bundle ajoute une couche Rego par-dessus la politique de confiance YAML. Le serveur évalue chaque bundle applicable après que la politique de confiance a autorisé la requête et avant d'émettre un jeton d'installation GitHub : un refus émis par l'un d'eux rejette l'échange.
+Un bundle ajoute une couche Rego par-dessus la politique de confiance YAML. Le serveur évalue chaque bundle applicable après que la politique de confiance a autorisé la requête et avant d'émettre un jeton d'installation GitHub : un refus émis par l'un d'eux rejette l'échange.
+
+`bundleEnforcement` n'est pas facultatif au même titre que la liste de bundles : le serveur exige cette clé et refuse de démarrer sans valeur valide, le chart l'écrit donc systématiquement.
 
 | Valeur | Défaut | Effet |
 |---|---|---|
+| `bundleEnforcement` | `"optional"` | Mode d'application, `optional` ou `required`. `optional` exécute ce que `bundles` liste et retombe sur une autorisation YAML seule quand la liste est vide. `required` fait de la couche Rego une condition de démarrage : au moins un bundle configuré, un `expected_policy_revision` par entrée, un `ref` `oci://` épinglé à `@sha256:` suivi de 64 caractères hexadécimaux, `allow_mutable_ref` et `cosign.skip_verification` laissés à false, et `fail_mode: closed` sur tout bundle s'appliquant à toutes les apps. |
 | `bundles` | `[]` | Bundles Rego, transmis tels quels à la clé `bundles:` de premier niveau de la configuration du serveur, sans validation ni renommage. Les entrées utilisent donc les noms de champs snake_case du serveur, et non le camelCase du chart. Une liste vide signifie qu'aucun bundle ne s'exécute et que la politique de confiance est le seul garde-fou. |
 
 ```yaml
@@ -304,15 +307,7 @@ bundles:
       certificate_oidc_issuer: https://token.actions.githubusercontent.com
 ```
 
-Vérifiez d'abord la version du serveur. La version `v0.0.3`, celle qu'épingle l'`appVersion` de ce chart, ne gère pas les bundles et analyse sa configuration sans rigueur : elle ignore la clé `bundles:`, démarre normalement et sert les échanges sans aucune couche Rego. Ni le chart ni le pod ne le signalent. Renseignez `image.tag` ou `image.digest` avec une image qui gère les bundles, et vérifiez la combinaison dans [Compatibilité]({{< relref "/integrations/compatibility" >}}).
-
-Une image qui gère les bundles exige en revanche une clé `bundle_enforcement` de premier niveau, valant `required` ou `optional`. Une valeur vide empêche le démarrage, que `bundles` soit renseigné ou non, et le chart ne génère pas cette clé. Fournissez-la par l'environnement :
-
-```yaml
-extraEnv:
-  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
-    value: required
-```
+La version du serveur épinglée par l'`appVersion` de ce chart gère les bundles. La page [Compatibilité]({{< relref "/integrations/compatibility" >}}) liste les combinaisons vérifiées.
 
 L'authentification au registre et la vérification cosign sont deux réglages distincts. `registry.auth` détermine si le pod peut récupérer un bundle. `cosign` détermine si un bundle récupéré est digne de confiance. Renseigner le premier ne renseigne pas le second, et un bundle tiré via une connexion authentifiée reste du code de politique non vérifié tant que les champs cosign ne sont pas en place.
 

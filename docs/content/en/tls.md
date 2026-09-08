@@ -17,9 +17,7 @@ The `tls` block covers the deployments where that is not enough:
 
 A server image that supports the `server.tls` configuration section. A server that does not know the section ignores it and keeps serving plain HTTP, while the chart has already pointed the probes at HTTPS, so the pods fail readiness and the release never finishes rolling.
 
-Support landed after server `v0.0.3`, and at the time of writing no tagged release carries it. `image.tag` defaults to the chart's `appVersion`, so a default install pulls an image without `server.tls`: set `image.tag` to a release that has it. [Compatibility]({{< relref "/integrations/compatibility" >}}) lists the verified combinations.
-
-A build new enough for `server.tls` is also new enough to require a top-level `bundle_enforcement` value, which the chart does not render. Supply it through `extraEnv` as described under [Policy bundles]({{< relref "values#policy-bundles" >}}), or the pod fails to start before TLS ever comes into play.
+The chart's `appVersion` pins a release that supports `server.tls`, so a default install needs no `image.tag` override. [Compatibility]({{< relref "/integrations/compatibility" >}}) lists the verified combinations.
 
 A certificate and key in a Secret you own. The chart never generates certificates. A `kubernetes.io/tls` Secret from cert-manager, from an internal PKI, or from `kubectl create secret tls` works as it is, because `tls.certKey` and `tls.keyKey` already default to `tls.crt` and `tls.key`. A self-signed certificate is a local testing tool: it forces every client to trust a CA created for one workload, which is the opposite of what a certificate is for. [Local TLS testing]({{< relref "/operations/tls-local-testing" >}}) covers that workflow.
 

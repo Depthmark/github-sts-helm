@@ -163,27 +163,19 @@ When `digest` is set the chart renders `repository@digest` and ignores `tag` ent
 
 `bundles` adds a Rego layer that runs after the YAML trust policy allows a request and before an installation token is minted. Each entry is written straight into the server configuration, so the fields are the server's snake_case names rather than the chart's camelCase.
 
-Bundle support is newer than the server release this chart's `appVersion` pins. Do this in order.
+The server release this chart's `appVersion` pins supports bundles. [Compatibility]({{< relref "/integrations/compatibility" >}}) lists the verified server, chart, and Action combinations.
 
-### 1. Run a server build that supports bundles
+### 1. Set the enforcement mode
 
-Server `v0.0.3` ignores the `bundles:` key instead of rejecting it. The pod starts, exchanges succeed, and no Rego runs. Nothing in the chart or in the pod reports that, so move the image to a build with bundle support first, with `image.tag` or `image.digest` as above.
-
-[Compatibility]({{< relref "/integrations/compatibility" >}}) lists the verified server, chart, and Action combinations.
-
-### 2. Set the enforcement mode
-
-A server with bundle support requires a top-level `bundle_enforcement` key set to `required` or `optional`, and refuses to start without it. The chart does not render that key, so set it through the environment:
+`bundleEnforcement` is written into every rendered configuration, because the server refuses to start without it. It defaults to `optional`.
 
 ```yaml
-extraEnv:
-  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
-    value: required
+bundleEnforcement: required
 ```
 
-`required` is the production posture. `optional` lets the server run with no bundle installed, and it says so through a startup warning and through its health, metric, and audit output.
+`required` is the production posture: the server refuses to start unless a bundle is configured, so removing the `bundles` list breaks the deployment instead of quietly dropping the Rego layer. `optional` lets the server run with no bundle installed, and it says so through a startup warning and through its health, metric, and audit output.
 
-### 3. Configure the bundle
+### 2. Configure the bundle
 
 ```yaml
 bundles:

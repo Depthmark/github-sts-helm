@@ -131,15 +131,7 @@ See the [upstream documentation](https://github.com/Depthmark/github-sts#trust-p
 
 Set `bundles` to configure signed OPA/Rego bundles. Bundles are evaluated after the YAML trust policy allows and before GitHub token minting, and a deny wins across all applicable bundles.
 
-Bundle support is newer than the server release this chart's `appVersion` pins. Server v0.0.3 parses its config leniently: it ignores `bundles:`, starts, and serves exchanges with no Rego layer. Move `image.tag` or `image.digest` to a build with bundle support first.
-
-A build that supports bundles also requires a top-level `bundle_enforcement` value (`required` or `optional`) and refuses to start without one. This chart does not render that key; supply it through `extraEnv`:
-
-```yaml
-extraEnv:
-  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
-    value: required
-```
+`bundleEnforcement` sets the top-level `bundle_enforcement` value the server requires; the chart always renders it, defaulting to `optional`. Set it to `required` where a bundle is a control rather than a convenience: under `optional` an empty `bundles` list silently drops the Rego layer, while `required` refuses to start without one.
 
 ```yaml
 bundles:
