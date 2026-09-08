@@ -1,0 +1,16 @@
+# CI values covering externally managed endpoint authentication tokens.
+endpointAuth:
+  existingSecret: github-sts-endpoint-auth
+  healthKey: health-token
+  metricsKey: metrics-token
+
+# An external Secret may contain a health token, but the kubelet cannot read a
+# Secret to construct an HTTP Authorization header.
+probes:
+  mode: tcpSocket
+
+serviceMonitor:
+  enabled: true
+
+podMonitor:
+  enabled: true

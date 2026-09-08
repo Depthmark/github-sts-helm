@@ -242,13 +242,24 @@ tests:
           path: data["config.yaml"]
           pattern: "auth_token"
 
-  - it: should include auth_token when set
+  - it: should keep the deprecated metrics token out of the ConfigMap
     set:
       metrics.authToken: "my-secret-token"
     asserts:
-      - matchRegex:
+      - notMatchRegex:
           path: data["config.yaml"]
-          pattern: 'auth_token: "my-secret-token"'
+          pattern: "auth_token"
+
+  - it: should keep the endpoint metrics token out of the ConfigMap
+    set:
+      endpointAuth.metricsToken: "my-secret-token"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "auth_token"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "my-secret-token"
 
   - it: should configure reachability probe
     set:

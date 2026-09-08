@@ -114,9 +114,6 @@ data:
 
     metrics:
       enabled: {{ .Values.metrics.enabled }}
-      {{- if .Values.metrics.authToken }}
-      auth_token: {{ .Values.metrics.authToken | quote }}
-      {{- end }}
       rate_limit_poll_enabled: {{ .Values.metrics.rateLimitPoll.enabled }}
       rate_limit_poll_interval: {{ .Values.metrics.rateLimitPoll.interval | default "60s" | quote }}
       reachability_probe_enabled: {{ .Values.metrics.reachabilityProbe.enabled }}

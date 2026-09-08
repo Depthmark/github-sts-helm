@@ -1,0 +1,215 @@
+suite: Endpoint Auth Hooks and Validation
+templates:
+  - deployment.yaml
+  - configmap.yaml
+  - secret.yaml
+  - tests/test-connection.yaml
+  - tests/test-metrics.yaml
+  - tests/test-readiness.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  - it: should inject the health hook token through a Secret reference
+    template: tests/test-connection.yaml
+    set:
+      endpointAuth.healthToken: health-hook-secret
+    asserts:
+      - contains:
+          path: spec.containers[0].env
+          content:
+            name: STS_TEST_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: test-github-sts-endpoint-auth
+                key: health-auth-token
+                optional: true
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'AUTH="Authorization: Bearer \$\{STS_TEST_TOKEN\}"'
+      - notMatchRegex:
+          path: spec.containers[0].command[2]
+          pattern: health-hook-secret
+
+  - it: should inject the metrics hook token through a Secret reference
+    template: tests/test-metrics.yaml
+    set:
+      endpointAuth.metricsToken: metrics-hook-secret
+    asserts:
+      - contains:
+          path: spec.containers[0].env
+          content:
+            name: STS_TEST_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: test-github-sts-endpoint-auth
+                key: metrics-auth-token
+                optional: true
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'AUTH="Authorization: Bearer \$\{STS_TEST_TOKEN\}"'
+      - notMatchRegex:
+          path: spec.containers[0].command[2]
+          pattern: metrics-hook-secret
+
+  - it: should preserve the deprecated token for the metrics hook
+    template: tests/test-metrics.yaml
+    set:
+      metrics.authToken: legacy-hook-secret
+    asserts:
+      - contains:
+          path: spec.containers[0].env
+          content:
+            name: STS_TEST_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: test-github-sts-endpoint-auth
+                key: metrics-auth-token
+                optional: true
+
+  - it: should keep external hook token keys optional
+    template: tests/test-connection.yaml
+    set:
+      endpointAuth.existingSecret: shared-endpoint-auth
+      endpointAuth.healthKey: custom-health
+      probes.mode: tcpSocket
+    asserts:
+      - contains:
+          path: spec.containers[0].env
+          content:
+            name: STS_TEST_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: shared-endpoint-auth
+                key: custom-health
+                optional: true
+
+  - it: should leave the readiness hook unauthenticated
+    template: tests/test-readiness.yaml
+    set:
+      endpointAuth.healthToken: health-hook-secret
+      endpointAuth.metricsToken: metrics-hook-secret
+    asserts:
+      - isNull:
+          path: spec.containers[0].env
+      - matchRegex:
+          path: spec.containers[0].command[2]
+          pattern: 'URL="http://test-github-sts:8080/ready"'
+
+  - it: should reject deprecated and new metrics tokens together
+    template: deployment.yaml
+    set:
+      metrics.authToken: legacy-secret
+      endpointAuth.metricsToken: new-secret
+    asserts:
+      - failedTemplate:
+          errorMessage: "metrics.authToken is deprecated and conflicts with endpointAuth.metricsToken — set only endpointAuth.metricsToken"
+
+  - it: should reject the deprecated metrics token alongside an external Secret
+    template: deployment.yaml
+    set:
+      metrics.authToken: legacy-secret
+      endpointAuth.existingSecret: shared-endpoint-auth
+      probes.mode: tcpSocket
+    asserts:
+      - failedTemplate:
+          errorMessage: "metrics.authToken is deprecated and cannot be combined with endpointAuth.existingSecret — move the token into that Secret under endpointAuth.metricsKey and clear metrics.authToken"
+
+  - it: should reject an external Secret with an HTTP liveness probe
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: shared-endpoint-auth
+    asserts:
+      - failedTemplate:
+          errorMessage: "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline, clear endpointAuth.healthKey if that Secret holds no health token, or set probes.mode to tcpSocket"
+
+  - it: should allow an external Secret with TCP probes
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: shared-endpoint-auth
+      probes.mode: tcpSocket
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
+          value: http
+
+  # -------------------------------------------------------------------------
+  # An existingSecret is opaque to the chart, so the key names declare what it
+  # holds. Clearing a key must retract every reference to that token.
+  # -------------------------------------------------------------------------
+
+  - it: should not reference a metrics key an external Secret does not hold
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: health-only
+      endpointAuth.metricsKey: ""
+      probes.mode: tcpSocket
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_METRICS_AUTH_TOKEN
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_HEALTH_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: health-only
+                key: health-auth-token
+                optional: true
+
+  - it: should leave the metrics hook unauthenticated for a health-only Secret
+    template: tests/test-metrics.yaml
+    set:
+      endpointAuth.existingSecret: health-only
+      endpointAuth.metricsKey: ""
+      probes.mode: tcpSocket
+    asserts:
+      - isNull:
+          path: spec.containers[0].env
+
+  - it: should allow an HTTP liveness probe when an external Secret holds no health token
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: metrics-only
+      endpointAuth.healthKey: ""
+    asserts:
+      - isKind:
+          of: Deployment
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_HEALTH_AUTH_TOKEN
+
+  - it: should reject an inline health token with no key to store it under
+    template: deployment.yaml
+    set:
+      endpointAuth.healthToken: orphan
+      endpointAuth.healthKey: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "endpointAuth.healthToken needs endpointAuth.healthKey to name the Secret key holding it"
+
+  - it: should reject an inline metrics token with no key to store it under
+    template: deployment.yaml
+    set:
+      endpointAuth.metricsToken: orphan
+      endpointAuth.metricsKey: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "endpointAuth.metricsToken needs endpointAuth.metricsKey to name the Secret key holding it"
+
+  - it: should reject an external Secret with every key cleared
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: shared-endpoint-auth
+      endpointAuth.healthKey: ""
+      endpointAuth.metricsKey: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "endpointAuth.existingSecret has no effect with both endpointAuth.healthKey and endpointAuth.metricsKey cleared — name at least one key the Secret holds"

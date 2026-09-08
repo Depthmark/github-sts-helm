@@ -1,5 +1,6 @@
 {{- include "github-sts.validateTls" . -}}
 {{- include "github-sts.validateApps" . -}}
+{{- include "github-sts.validateEndpointAuth" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,6 +21,7 @@ spec:
     metadata:
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -53,6 +55,22 @@ spec:
           env:
             - name: GITHUBSTS_CONFIG_PATH
               value: "/etc/github-sts/config.yaml"
+            {{- if include "github-sts.healthEndpointAuthEnabled" . }}
+            - name: GITHUBSTS_HEALTH_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "github-sts.endpointAuthSecretName" . }}
+                  key: {{ .Values.endpointAuth.healthKey }}
+                  optional: true
+            {{- end }}
+            {{- if include "github-sts.metricsEndpointAuthEnabled" . }}
+            - name: GITHUBSTS_METRICS_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "github-sts.endpointAuthSecretName" . }}
+                  key: {{ .Values.endpointAuth.metricsKey }}
+                  optional: true
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -74,7 +92,7 @@ spec:
           {{- end }}
           {{- if .Values.probes.liveness.enabled }}
           livenessProbe:
-            {{- include "github-sts.probeAction" (dict "ctx" $ "path" "/health") | nindent 12 }}
+            {{- include "github-sts.probeAction" (dict "ctx" $ "path" "/health" "headerToken" .Values.endpointAuth.healthToken) | nindent 12 }}
             initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}

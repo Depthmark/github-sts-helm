@@ -27,6 +27,15 @@ spec:
   podMetricsEndpoints:
     - port: {{ include "github-sts.portName" . }}
       path: {{ .Values.podMonitor.path }}
+      {{- if or .Values.podMonitor.bearerTokenSecret (include "github-sts.metricsEndpointAuthEnabled" .) }}
+      bearerTokenSecret:
+        {{- if .Values.podMonitor.bearerTokenSecret }}
+        {{- toYaml .Values.podMonitor.bearerTokenSecret | nindent 8 }}
+        {{- else }}
+        name: {{ include "github-sts.endpointAuthSecretName" . }}
+        key: {{ .Values.endpointAuth.metricsKey }}
+        {{- end }}
+      {{- end }}
       {{- if .Values.podMonitor.scheme }}
       scheme: {{ .Values.podMonitor.scheme }}
       {{- else if .Values.tls.enabled }}

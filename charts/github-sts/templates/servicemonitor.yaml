@@ -27,6 +27,15 @@ spec:
   endpoints:
     - port: {{ include "github-sts.portName" . }}
       path: {{ .Values.serviceMonitor.path }}
+      {{- if or .Values.serviceMonitor.bearerTokenSecret (include "github-sts.metricsEndpointAuthEnabled" .) }}
+      bearerTokenSecret:
+        {{- if .Values.serviceMonitor.bearerTokenSecret }}
+        {{- toYaml .Values.serviceMonitor.bearerTokenSecret | nindent 8 }}
+        {{- else }}
+        name: {{ include "github-sts.endpointAuthSecretName" . }}
+        key: {{ .Values.endpointAuth.metricsKey }}
+        {{- end }}
+      {{- end }}
       {{- if .Values.serviceMonitor.scheme }}
       scheme: {{ .Values.serviceMonitor.scheme }}
       {{- else if .Values.tls.enabled }}

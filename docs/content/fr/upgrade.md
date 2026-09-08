@@ -41,9 +41,37 @@ La mise à niveau restreint la route, sauf si votre fichier de valeurs définit 
 
 `httproute.paths` est nouveau, et ne peut pas être vide : Gateway API interprète une règle sans correspondance comme correspondant à tous les chemins, le chart refuse donc de se générer plutôt que de tout publier.
 
+## Migrer l'authentification du point d'entrée des métriques
+
+`metrics.authToken` est obsolète. Il reste fonctionnel pendant la migration, mais ne le renseignez pas en même temps qu'`endpointAuth.metricsToken` ou qu'`endpointAuth.existingSecret` : le chart rejette ces deux combinaisons lors du rendu plutôt que d'abandonner la valeur obsolète sans avertissement.
+
+Déplacez la valeur vers la nouvelle clé :
+
+```yaml
+endpointAuth:
+  metricsToken: "remplacez-par-votre-jeton-de-metriques"
+```
+
+Avant ce changement, `metrics.authToken` était généré sous la forme `metrics.auth_token` dans le ConfigMap du serveur. Après la mise à niveau, le chart supprime `auth_token` du ConfigMap, écrit le jeton dans son Secret d'authentification et injecte `GITHUBSTS_METRICS_AUTH_TOKEN` depuis ce Secret. Cela s'applique aussi tant que l'ancienne valeur est encore utilisée.
+
+Pour gérer le Secret hors de Helm, créez-le dans le namespace de la release avant la mise à niveau :
+
+```bash
+kubectl create secret generic github-sts-endpoint-auth \
+  --namespace github-sts \
+  --from-file=metrics-auth-token=/chemin/vers/jeton-metriques-protege \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl describe secret github-sts-endpoint-auth --namespace github-sts
+```
+
+Confirmez que `metrics-auth-token` figure dans la section `Data`, puis réglez `endpointAuth.existingSecret: github-sts-endpoint-auth` et `endpointAuth.metricsKey: metrics-auth-token`. Vérifiez-le de nouveau après la mise à niveau et après chaque rotation. Le Deployment rend les références au Secret et à la clé facultatives : un objet ou une clé manquants laissent donc le pod démarrer avec l'authentification des points d'entrée désactivée. Videz `endpointAuth.healthKey` lorsque ce Secret ne contient aucun jeton de santé, afin que le chart ne référence pas une clé absente. La sonde HTTP de vivacité par défaut ne peut pas non plus lire un Secret externe pour construire un en-tête `Authorization` : un jeton de santé externe exige donc `probes.mode: tcpSocket` tant que la sonde de vivacité est active, tandis qu'un Secret réservé aux métriques laisse la sonde en `httpGet`.
+
 ## Ce qui déclenche un redémarrage
 
 Le template de pod porte `checksum/config`, une empreinte du ConfigMap généré. Tout changement d'une valeur côté serveur — un émetteur, une audience, un niveau de journalisation, un TTL de politique — modifie cette empreinte et fait rouler les pods. C'est délibéré : le serveur lit sa configuration au démarrage, donc une mise à jour du ConfigMap qui ne ferait pas rouler les pods laisserait le processus sur l'ancienne configuration sans aucun signal de cette divergence.
+
+Le template de pod porte aussi `checksum/secret`. Modifier un jeton de point d'entrée en ligne change le Secret géré par le chart et fait rouler les pods. Modifier le contenu d'`endpointAuth.existingSecret` ne change pas cette somme de contrôle, et les variables d'environnement provenant d'un Secret sont résolues au démarrage du pod. Redémarrez le Deployment après la rotation d'un Secret externe d'authentification, ou configurez un dispositif de rechargement des Secrets.
 
 En pratique, ce chart roule plus souvent qu'un chart classique. C'est aussi la raison pour laquelle `revisionHistoryLimit` vaut `5` par défaut.
 
@@ -113,7 +141,7 @@ helm rollback github-sts 3 --namespace github-sts
 
 `revisionHistoryLimit` borne la profondeur atteignable par `kubectl rollout undo` au niveau des ReplicaSets. L'historique propre à Helm est distinct et borné par `--history-max` côté client : les deux ne s'accordent donc pas nécessairement sur la profondeur disponible.
 
-Un retour arrière restaure le ConfigMap en même temps que le Deployment : il annule donc aussi bien un changement de configuration serveur qu'un changement d'image.
+Un retour arrière restaure le ConfigMap et le Secret d'authentification géré par le chart en même temps que le Deployment : il annule donc aussi bien un changement de configuration serveur ou de jeton en ligne qu'un changement d'image.
 
 ## Avant une mise à niveau en production
 

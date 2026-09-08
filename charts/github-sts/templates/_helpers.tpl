@@ -175,6 +175,78 @@ httpGet:
   {{- if $ctx.Values.tls.enabled }}
   scheme: HTTPS
   {{- end }}
+  {{- if .headerToken }}
+  httpHeaders:
+    - name: Authorization
+      value: {{ printf "Bearer %s" .headerToken | quote }}
+  {{- end }}
+{{- end -}}
+{{- end }}
+
+{{/* Effective inline metrics token, including the deprecated values key. */}}
+{{- define "github-sts.endpointAuthMetricsToken" -}}
+{{- .Values.endpointAuth.metricsToken | default .Values.metrics.authToken -}}
+{{- end }}
+
+{{/*
+Whether an endpoint is authenticated. An inline token is proof on its own,
+because the chart writes the Secret itself. An `existingSecret` is opaque to
+the chart, so the key names stand in for its contents: a non-empty key asserts
+the token is there, and clearing a key says this Secret carries no token for
+that endpoint. That distinction matters for the monitors — the Prometheus
+Operator rejects a `bearerTokenSecret` whose key is missing, so guessing a key
+into an external Secret breaks scraping outright.
+*/}}
+{{- define "github-sts.healthEndpointAuthEnabled" -}}
+{{- if or .Values.endpointAuth.healthToken (and .Values.endpointAuth.existingSecret .Values.endpointAuth.healthKey) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{- define "github-sts.metricsEndpointAuthEnabled" -}}
+{{- if or (include "github-sts.endpointAuthMetricsToken" .) (and .Values.endpointAuth.existingSecret .Values.endpointAuth.metricsKey) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/* Whether any endpoint token source is configured. */}}
+{{- define "github-sts.endpointAuthEnabled" -}}
+{{- if or (include "github-sts.healthEndpointAuthEnabled" .) (include "github-sts.metricsEndpointAuthEnabled" .) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/* Render an endpoint-auth Secret only for inline token values. */}}
+{{- define "github-sts.createEndpointAuthSecret" -}}
+{{- if and (not .Values.endpointAuth.existingSecret) (or .Values.endpointAuth.healthToken (include "github-sts.endpointAuthMetricsToken" .)) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/* Secret containing endpoint bearer tokens. */}}
+{{- define "github-sts.endpointAuthSecretName" -}}
+{{- .Values.endpointAuth.existingSecret | default (printf "%s-endpoint-auth" (include "github-sts.fullname" .)) -}}
+{{- end }}
+
+{{/* Reject ambiguous endpoint-auth values and impossible liveness probes. */}}
+{{- define "github-sts.validateEndpointAuth" -}}
+{{- if and .Values.metrics.authToken .Values.endpointAuth.metricsToken -}}
+{{- fail "metrics.authToken is deprecated and conflicts with endpointAuth.metricsToken — set only endpointAuth.metricsToken" -}}
+{{- end -}}
+{{- if and .Values.metrics.authToken .Values.endpointAuth.existingSecret -}}
+{{- fail "metrics.authToken is deprecated and cannot be combined with endpointAuth.existingSecret — move the token into that Secret under endpointAuth.metricsKey and clear metrics.authToken" -}}
+{{- end -}}
+{{- if and (include "github-sts.healthEndpointAuthEnabled" .) (not .Values.endpointAuth.healthToken) .Values.probes.liveness.enabled (eq (include "github-sts.probeMode" .) "httpGet") -}}
+{{- fail "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline, clear endpointAuth.healthKey if that Secret holds no health token, or set probes.mode to tcpSocket" -}}
+{{- end -}}
+{{- if and .Values.endpointAuth.healthToken (not .Values.endpointAuth.healthKey) -}}
+{{- fail "endpointAuth.healthToken needs endpointAuth.healthKey to name the Secret key holding it" -}}
+{{- end -}}
+{{- if and (include "github-sts.endpointAuthMetricsToken" .) (not .Values.endpointAuth.metricsKey) -}}
+{{- fail "endpointAuth.metricsToken needs endpointAuth.metricsKey to name the Secret key holding it" -}}
+{{- end -}}
+{{- if and .Values.endpointAuth.existingSecret (not .Values.endpointAuth.healthKey) (not .Values.endpointAuth.metricsKey) -}}
+{{- fail "endpointAuth.existingSecret has no effect with both endpointAuth.healthKey and endpointAuth.metricsKey cleared — name at least one key the Secret holds" -}}
 {{- end -}}
 {{- end }}
 
@@ -230,10 +302,12 @@ Usage: {{ include "github-sts.testFetch" (dict "ctx" $ "path" "/health") }}
 {{- $ctx := .ctx -}}
 {{- $url := printf "%s://%s:%v%s" (include "github-sts.scheme" $ctx) (include "github-sts.fullname" $ctx) $ctx.Values.service.port .path -}}
 URL="{{ $url }}"
+AUTH=""
+if [ -n "${STS_TEST_TOKEN:-}" ]; then AUTH="Authorization: Bearer ${STS_TEST_TOKEN}"; fi
 if command -v curl >/dev/null 2>&1; then
-  RESPONSE=$(curl -fsS {{ if $ctx.Values.tls.enabled }}-k {{ end }}"$URL")
+  RESPONSE=$(curl -fsS {{ if $ctx.Values.tls.enabled }}-k {{ end }}${AUTH:+-H "$AUTH"} "$URL")
 else
-  RESPONSE=$(wget -qO- {{ if $ctx.Values.tls.enabled }}--no-check-certificate {{ end }}"$URL")
+  RESPONSE=$(wget -qO- {{ if $ctx.Values.tls.enabled }}--no-check-certificate {{ end }}${AUTH:+--header="$AUTH"} "$URL")
 fi
 {{- end }}
 
@@ -375,4 +449,15 @@ out of a running release instead of turning it into a CrashLoopBackOff.
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- end }}
+
+{{/* Secret-backed bearer token for an endpoint test hook. */}}
+{{- define "github-sts.testEnv" -}}
+env:
+  - name: STS_TEST_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: {{ include "github-sts.endpointAuthSecretName" .ctx }}
+        key: {{ .key }}
+        optional: true
 {{- end }}

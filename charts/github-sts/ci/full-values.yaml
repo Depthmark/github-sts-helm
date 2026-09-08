@@ -73,13 +73,16 @@ audit:
 
 metrics:
   enabled: true
-  authToken: "metrics-bearer-token"
   rateLimitPoll:
     enabled: true
     interval: "60s"
   reachabilityProbe:
     enabled: true
     interval: "30s"
+
+endpointAuth:
+  healthToken: "health-bearer-token"
+  metricsToken: "metrics-bearer-token"
 
 rateLimit:
   enabled: true

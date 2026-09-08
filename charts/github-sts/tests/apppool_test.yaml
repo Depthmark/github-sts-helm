@@ -2,6 +2,7 @@ suite: App Pools
 templates:
   - configmap.yaml
   - deployment.yaml
+  - secret.yaml
 release:
   name: test
   namespace: github-sts

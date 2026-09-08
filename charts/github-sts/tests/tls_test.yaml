@@ -2,6 +2,7 @@ suite: TLS and mTLS
 templates:
   - configmap.yaml
   - deployment.yaml
+  - secret.yaml
   - service.yaml
   - servicemonitor.yaml
   - podmonitor.yaml

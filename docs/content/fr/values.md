@@ -8,7 +8,7 @@ translationStatus: pending-review
 
 Cette page est le contrat de configuration du chart. Elle est vérifiée contre `charts/github-sts/values.yaml` à chaque pull request : une valeur présente ici existe dans le chart, et une valeur acceptée par le chart figure ici.
 
-Les valeurs qui configurent le *serveur* sont écrites dans le ConfigMap et lues par le processus depuis `/etc/github-sts/config.yaml`. Les valeurs qui configurent le *déploiement* n'affectent que les objets Kubernetes. Les tableaux le précisent lorsque la distinction compte.
+La plupart des valeurs qui configurent le *serveur* sont écrites dans le ConfigMap et lues par le processus depuis `/etc/github-sts/config.yaml`. Les jetons porteurs des points d'entrée font exception : le chart les stocke dans un Secret et les injecte par des variables d'environnement. Les valeurs qui configurent le *déploiement* n'affectent que les objets Kubernetes. Les tableaux le précisent lorsque la distinction compte.
 
 <!-- values:begin -->
 
@@ -349,12 +349,30 @@ Modifier `bundles` modifie le ConfigMap, et le template de pod en porte la somme
 
 Un `emptyDir` est supprimé avec le pod. Exportez le flux d'audit hors du nœud avec un collecteur de journaux s'il doit survivre à un redémarrage.
 
+## Authentification des points d'entrée
+
+| Valeur | Défaut | Effet |
+|---|---|---|
+| `endpointAuth.existingSecret` | `""` | Secret existant dans le namespace de la release qui contient les jetons des points d'entrée. Lorsqu'il est renseigné, le chart ne crée pas de Secret d'authentification et ignore `endpointAuth.healthToken` et `endpointAuth.metricsToken`. Le combiner avec `metrics.authToken`, obsolète, fait échouer le rendu plutôt que d'abandonner ce jeton en silence. Réglez `probes.mode` sur `tcpSocket` lorsque la sonde de vivacité est active et qu'`endpointAuth.healthKey` est renseignée, car le chart ne peut pas lire un Secret externe pour construire l'en-tête d'une sonde HTTP. |
+| `endpointAuth.healthKey` | `"health-auth-token"` | Clé du Secret d'authentification qui contient le jeton porteur de `/health`. La vider déclare qu'`existingSecret` ne contient aucun jeton de santé. |
+| `endpointAuth.metricsKey` | `"metrics-auth-token"` | Clé du Secret d'authentification qui contient le jeton porteur de `/metrics`. La vider déclare qu'`existingSecret` ne contient aucun jeton de métriques. |
+| `endpointAuth.healthToken` | `""` | Jeton porteur exigé par `GET /health`. Une valeur vide laisse `/health` sans authentification. Le chart stocke une valeur non vide dans son Secret d'authentification. Ignoré lorsque `existingSecret` est renseigné. `/ready` reste sans authentification, donc les sondes de démarrage et de disponibilité n'utilisent pas ce jeton. |
+| `endpointAuth.metricsToken` | `""` | Jeton porteur exigé par `GET /metrics`. Une valeur vide laisse `/metrics` sans authentification. Le chart stocke une valeur non vide dans son Secret d'authentification. Ignoré lorsque `existingSecret` est renseigné. Configurez le `bearerTokenSecret` du moniteur correspondant lorsque Prometheus collecte ce point d'entrée. |
+
+Les sondes HTTP de Kubernetes ne peuvent pas obtenir la valeur d'un en-tête HTTP depuis un Secret. Pour authentifier la sonde de vivacité, le chart copie un `endpointAuth.healthToken` en ligne dans l'en-tête `Authorization` des spécifications du Deployment et du Pod. Toute personne autorisée à lire ces objets peut lire le jeton de santé. Utilisez un jeton distinct pour les métriques : sa valeur n'est pas intégrée à la spécification du Pod. Le serveur et le hook de test Helm le reçoivent par un `secretKeyRef`, et chaque moniteur le référence avec un sélecteur de clé de Secret.
+
+Le chart ne peut pas lire `endpointAuth.existingSecret` : les deux noms de clés tiennent donc lieu de description de son contenu. Une clé non vide affirme que le Secret contient ce jeton ; une clé vidée affirme le contraire. Cela compte surtout pour les moniteurs : l'opérateur Prometheus résout `bearerTokenSecret` de façon anticipée et écarte une cible dont la clé est absente. Un Secret externe qui ne contient qu'un jeton de santé a donc besoin d'`endpointAuth.metricsKey: ""` pour éviter que le chart ne dirige Prometheus vers une clé inexistante. De même, vider `endpointAuth.healthKey` laisse `/health` non authentifié, ce qui permet à la sonde de vivacité de rester en `httpGet`. Le rendu échoue si les deux clés sont vides, car `existingSecret` n'aurait alors plus aucun effet.
+
+Les références aux jetons dans le Deployment utilisent `secretKeyRef.optional: true`. Si `endpointAuth.existingSecret` ou l'une de ses clés manque, le pod démarre quand même sans la variable d'environnement correspondante. Le serveur interprète alors le jeton vide comme une authentification désactivée : ce comportement est ouvert en cas d'échec. Vérifiez le nom du Secret et chaque clé que vous comptez configurer après le déploiement.
+
+Modifier un jeton en ligne change la somme de contrôle du Secret géré par le chart et fait rouler les pods. Le contenu d'`endpointAuth.existingSecret` reste hors du rendu du chart : la rotation de ce Secret ne déclenche donc aucun déploiement progressif. Redémarrez le Deployment ou configurez un dispositif de rechargement des Secrets pour injecter le nouveau jeton dans l'environnement.
+
 ## Métriques
 
 | Valeur | Défaut | Effet |
 |---|---|---|
 | `metrics.enabled` | `true` | Sert les métriques Prometheus sur `/metrics` et active le test de métriques du chart. |
-| `metrics.authToken` | `""` | Jeton porteur exigé sur `/metrics`. Vide laisse le point d'entrée non authentifié, ce qui est acceptable pour un Service `ClusterIP` et ne l'est pas pour un point d'entrée exposé par un Ingress. |
+| `metrics.authToken` | `""` | Alias obsolète d'`endpointAuth.metricsToken`. Il reste fonctionnel et est stocké dans le Secret d'authentification géré par le chart, pas dans le ConfigMap. La combiner avec `endpointAuth.metricsToken` ou `endpointAuth.existingSecret` fait échouer le rendu, car la valeur obsolète serait sinon ignorée sans avertissement. |
 | `metrics.rateLimitPoll.enabled` | `true` | Interroge périodiquement l'API de limite de débit GitHub, pour que le quota restant soit visible avant que les échanges commencent à échouer. |
 | `metrics.rateLimitPoll.interval` | `"60s"` | Intervalle d'interrogation de l'API de limite de débit. |
 | `metrics.reachabilityProbe.enabled` | `true` | Sonde périodiquement la joignabilité de l'API GitHub, ce qui distingue une panne de sortie réseau d'un refus de politique pendant un incident. |
@@ -373,6 +391,7 @@ Exige les CRD Prometheus Operator. Collecte via le Service.
 | `serviceMonitor.interval` | `"30s"` | Intervalle de collecte. |
 | `serviceMonitor.scrapeTimeout` | `"10s"` | Délai maximal de collecte. Gardez-le inférieur à l'intervalle. |
 | `serviceMonitor.path` | `"/metrics"` | Chemin des métriques. |
+| `serviceMonitor.bearerTokenSecret` | `{}` | `name` et `key` du Secret pour le jeton porteur présenté par Prometheus. Lorsque cette valeur est vide et que l'authentification des métriques est configurée, utilise par défaut le Secret d'authentification et `endpointAuth.metricsKey`. |
 | `serviceMonitor.metricRelabelings` | `[]` | Réétiquetage appliqué aux échantillons collectés. |
 | `serviceMonitor.relabelings` | `[]` | Réétiquetage appliqué à la cible avant la collecte. |
 | `serviceMonitor.honorLabels` | `false` | Donne la priorité aux labels collectés sur ceux de la cible en cas de collision. |
@@ -392,11 +411,14 @@ L'alternative au ServiceMonitor : collecte directement auprès des pods, ce qu'i
 | `podMonitor.interval` | `"30s"` | Intervalle de collecte. |
 | `podMonitor.scrapeTimeout` | `"10s"` | Délai maximal de collecte. Gardez-le inférieur à l'intervalle. |
 | `podMonitor.path` | `"/metrics"` | Chemin des métriques. |
+| `podMonitor.bearerTokenSecret` | `{}` | `name` et `key` du Secret pour le jeton porteur présenté par Prometheus. Lorsque cette valeur est vide et que l'authentification des métriques est configurée, utilise par défaut le Secret d'authentification et `endpointAuth.metricsKey`. |
 | `podMonitor.metricRelabelings` | `[]` | Réétiquetage appliqué aux échantillons collectés. |
 | `podMonitor.relabelings` | `[]` | Réétiquetage appliqué à la cible avant la collecte. |
 | `podMonitor.honorLabels` | `false` | Donne la priorité aux labels collectés sur ceux de la cible en cas de collision. |
 | `podMonitor.scheme` | `""` | Schéma de collecte. Vide signifie `https` lorsque `tls.enabled` est actif, et `http` sinon. |
 | `podMonitor.tlsConfig` | `{}` | Réglages TLS de la collecte. Vide avec `tls.enabled` actif signifie `insecureSkipVerify: true`, car Prometheus se connecte à l'IP du pod, pour laquelle un certificat de service ne porte aucun SAN. Renseignez `ca` et `serverName` pour authentifier la cible, et `cert` avec `keySecret` lorsque `tls.clientAuth.enabled` est actif. |
+
+Le Prometheus Operator résout `bearerTokenSecret` dans le namespace qui contient le ServiceMonitor ou le PodMonitor. Si `serviceMonitor.namespace` ou `podMonitor.namespace` diffère du namespace de la release, dupliquez le Secret du jeton dans le namespace du moniteur. Conservez le nom et la clé générés, ou réglez `bearerTokenSecret` sur le `name` et la `key` du Secret dupliqué.
 
 ## Tests Helm
 

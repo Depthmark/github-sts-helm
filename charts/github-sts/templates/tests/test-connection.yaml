@@ -13,6 +13,9 @@ spec:
   containers:
     - name: health-check
       image: {{ .Values.tests.image | quote }}
+      {{- if include "github-sts.healthEndpointAuthEnabled" . }}
+      {{- include "github-sts.testEnv" (dict "ctx" $ "key" .Values.endpointAuth.healthKey) | nindent 6 }}
+      {{- end }}
       command:
         - /bin/sh
         - -c

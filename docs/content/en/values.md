@@ -7,7 +7,7 @@ translationKey: helm-chart-values
 
 This page is the configuration contract for the chart. It is checked against `charts/github-sts/values.yaml` on every pull request, so a value that exists here exists in the chart, and a value the chart accepts appears here.
 
-Values that configure the *server* are written into the ConfigMap and read by the process at `/etc/github-sts/config.yaml`. Values that configure the *deployment* only affect the Kubernetes objects. The tables note which is which where it matters.
+Most values that configure the *server* are written into the ConfigMap and read by the process at `/etc/github-sts/config.yaml`. Endpoint bearer tokens are the exception: the chart stores them in a Secret and injects them through environment variables. Values that configure the *deployment* only affect the Kubernetes objects. The tables note which is which where it matters.
 
 <!-- values:begin -->
 
@@ -348,12 +348,30 @@ Changing `bundles` changes the ConfigMap, and the pod template carries a checksu
 
 An `emptyDir` is deleted with the pod. Ship the audit stream off the node with a log collector if you need it to survive a restart.
 
+## Endpoint authentication
+
+| Value | Default | Effect |
+|---|---|---|
+| `endpointAuth.existingSecret` | `""` | Existing Secret in the release namespace that holds endpoint tokens. When set, the chart does not create an endpoint-auth Secret and ignores `endpointAuth.healthToken` and `endpointAuth.metricsToken`. Combining it with the deprecated `metrics.authToken` makes rendering fail rather than dropping that token silently. Set `probes.mode` to `tcpSocket` when liveness is enabled and `endpointAuth.healthKey` is set, because the chart cannot read an external Secret to construct an HTTP probe header. |
+| `endpointAuth.healthKey` | `"health-auth-token"` | Key in the endpoint-auth Secret that holds the `/health` bearer token. Clearing it declares that `existingSecret` holds no health token. |
+| `endpointAuth.metricsKey` | `"metrics-auth-token"` | Key in the endpoint-auth Secret that holds the `/metrics` bearer token. Clearing it declares that `existingSecret` holds no metrics token. |
+| `endpointAuth.healthToken` | `""` | Bearer token required on `GET /health`. Empty leaves `/health` unauthenticated. The chart stores a non-empty value in its endpoint-auth Secret. Ignored when `existingSecret` is set. `/ready` stays unauthenticated, so startup and readiness probes do not use this token. |
+| `endpointAuth.metricsToken` | `""` | Bearer token required on `GET /metrics`. Empty leaves `/metrics` unauthenticated. The chart stores a non-empty value in its endpoint-auth Secret. Ignored when `existingSecret` is set. Configure the matching monitor `bearerTokenSecret` when Prometheus scrapes this endpoint. |
+
+Kubernetes HTTP probes cannot take an HTTP header value from a Secret. To authenticate the liveness probe, the chart copies an inline `endpointAuth.healthToken` into the `Authorization` header in the Deployment and Pod specifications. Anyone who can read those objects can read the health token. Use a distinct metrics token: its value is not inlined into the Pod specification. The server and Helm test hook receive it through a `secretKeyRef`, and each monitor refers to it with a Secret key selector.
+
+The chart cannot read `endpointAuth.existingSecret`, so the two key names stand in for its contents. A non-empty key asserts the Secret carries that token; clearing a key says it does not. This matters most for the monitors: the Prometheus Operator resolves `bearerTokenSecret` eagerly and drops a scrape target whose key is missing, so an external Secret that holds only a health token needs `endpointAuth.metricsKey: ""` to keep the chart from pointing Prometheus at a key that does not exist. Clearing `endpointAuth.healthKey` likewise leaves `/health` unauthenticated, which lets the liveness probe stay on `httpGet`. Rendering fails when both keys are cleared, because `existingSecret` would then have no effect at all.
+
+Endpoint token references in the Deployment use `secretKeyRef.optional: true`. If `endpointAuth.existingSecret` or one of its keys is missing, the pod still starts without that environment variable. The server treats the resulting empty token as authentication disabled, so this behavior fails open. Verify the Secret name and each key you intend to configure after deployment.
+
+Changing an inline token changes the chart-owned Secret checksum and rolls the pods. The contents of `endpointAuth.existingSecret` are outside the rendered chart, so rotating that Secret does not trigger a rollout. Restart the Deployment or configure a Secret reloader to put the new token into the environment.
+
 ## Metrics
 
 | Value | Default | Effect |
 |---|---|---|
 | `metrics.enabled` | `true` | Serves Prometheus metrics on `/metrics` and enables the chart's metrics test hook. |
-| `metrics.authToken` | `""` | Bearer token required on `/metrics`. Empty leaves the endpoint unauthenticated, which is normally fine for a `ClusterIP` Service and not fine for one exposed through an Ingress. |
+| `metrics.authToken` | `""` | Deprecated alias for `endpointAuth.metricsToken`. It remains functional and is stored in the chart-owned endpoint-auth Secret, not the ConfigMap. Combining it with `endpointAuth.metricsToken` or `endpointAuth.existingSecret` makes rendering fail, because the deprecated value would otherwise be discarded without warning. |
 | `metrics.rateLimitPoll.enabled` | `true` | Polls the GitHub rate limit API so remaining quota is visible before exchanges start failing. |
 | `metrics.rateLimitPoll.interval` | `"60s"` | Poll interval for the rate limit API. |
 | `metrics.reachabilityProbe.enabled` | `true` | Probes GitHub API reachability on a timer, which separates an egress failure from a policy failure during an incident. |
@@ -372,6 +390,7 @@ Requires the Prometheus Operator CRDs. Scrapes through the Service.
 | `serviceMonitor.interval` | `"30s"` | Scrape interval. |
 | `serviceMonitor.scrapeTimeout` | `"10s"` | Scrape timeout. Keep it below the interval. |
 | `serviceMonitor.path` | `"/metrics"` | Metrics path. |
+| `serviceMonitor.bearerTokenSecret` | `{}` | Secret `name` and `key` for the bearer token Prometheus presents. When empty and metrics authentication is configured, defaults to the endpoint-auth Secret and `endpointAuth.metricsKey`. |
 | `serviceMonitor.metricRelabelings` | `[]` | Relabeling applied to scraped samples. |
 | `serviceMonitor.relabelings` | `[]` | Relabeling applied to the target before scraping. |
 | `serviceMonitor.honorLabels` | `false` | Lets scraped labels win over target labels on collision. |
@@ -391,11 +410,14 @@ The alternative to ServiceMonitor: scrapes pods directly, which is what you want
 | `podMonitor.interval` | `"30s"` | Scrape interval. |
 | `podMonitor.scrapeTimeout` | `"10s"` | Scrape timeout. Keep it below the interval. |
 | `podMonitor.path` | `"/metrics"` | Metrics path. |
+| `podMonitor.bearerTokenSecret` | `{}` | Secret `name` and `key` for the bearer token Prometheus presents. When empty and metrics authentication is configured, defaults to the endpoint-auth Secret and `endpointAuth.metricsKey`. |
 | `podMonitor.metricRelabelings` | `[]` | Relabeling applied to scraped samples. |
 | `podMonitor.relabelings` | `[]` | Relabeling applied to the target before scraping. |
 | `podMonitor.honorLabels` | `false` | Lets scraped labels win over target labels on collision. |
 | `podMonitor.scheme` | `""` | Scrape scheme. Empty means `https` when `tls.enabled` is on, and `http` otherwise. |
 | `podMonitor.tlsConfig` | `{}` | TLS settings for the scrape. Empty with `tls.enabled` on means `insecureSkipVerify: true`, because Prometheus connects to the Pod IP and a serving certificate carries no SAN for it. Supply `ca` and `serverName` to authenticate the target, and `cert` with `keySecret` when `tls.clientAuth.enabled` is on. |
+
+The Prometheus Operator resolves `bearerTokenSecret` in the namespace that contains the ServiceMonitor or PodMonitor. If `serviceMonitor.namespace` or `podMonitor.namespace` differs from the release namespace, mirror the token Secret into the monitor namespace. Keep the generated name and key, or set `bearerTokenSecret` to the mirrored Secret's `name` and `key`.
 
 ## Helm tests
 
