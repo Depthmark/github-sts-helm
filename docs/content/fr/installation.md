@@ -164,27 +164,19 @@ Lorsque `digest` est renseigné, le chart génère `repository@digest` et ignore
 
 `bundles` ajoute une couche Rego qui s'exécute après que la politique de confiance YAML a autorisé la requête et avant l'émission d'un jeton d'installation. Chaque entrée est écrite directement dans la configuration du serveur : les champs portent donc les noms snake_case du serveur, et non le camelCase du chart.
 
-La gestion des bundles est plus récente que la version du serveur épinglée par l'`appVersion` de ce chart. Procédez dans cet ordre.
+La version du serveur épinglée par l'`appVersion` de ce chart gère les bundles. La page [Compatibilité]({{< relref "/integrations/compatibility" >}}) liste les combinaisons vérifiées de serveur, de chart et d'Action.
 
-### 1. Faire tourner une image qui gère les bundles
+### 1. Définir le mode d'application
 
-La version `v0.0.3` du serveur ignore la clé `bundles:` au lieu de la rejeter. Le pod démarre, les échanges aboutissent, et aucun Rego ne s'exécute. Ni le chart ni le pod ne le signalent : commencez donc par basculer l'image vers une version qui gère les bundles, via `image.tag` ou `image.digest` comme ci-dessus.
-
-La page [Compatibilité]({{< relref "/integrations/compatibility" >}}) liste les combinaisons vérifiées de serveur, de chart et d'Action.
-
-### 2. Définir le mode d'application
-
-Une image qui gère les bundles exige une clé `bundle_enforcement` de premier niveau, valant `required` ou `optional`, et refuse de démarrer sans elle. Le chart ne génère pas cette clé : définissez-la par l'environnement.
+`bundleEnforcement` est écrit dans toute configuration générée, car le serveur refuse de démarrer sans cette clé. Sa valeur par défaut est `optional`.
 
 ```yaml
-extraEnv:
-  - name: GITHUBSTS_BUNDLE_ENFORCEMENT
-    value: required
+bundleEnforcement: required
 ```
 
-`required` est la posture de production. `optional` laisse le serveur fonctionner sans aucun bundle installé, et il l'annonce par un avertissement au démarrage ainsi que dans sa santé, ses métriques et son audit.
+`required` est la posture de production : le serveur refuse de démarrer tant qu'aucun bundle n'est configuré, si bien que supprimer la liste `bundles` casse le déploiement au lieu d'en retirer silencieusement la couche Rego. `optional` laisse le serveur fonctionner sans aucun bundle installé, et il l'annonce par un avertissement au démarrage ainsi que dans sa santé, ses métriques et son audit.
 
-### 3. Configurer le bundle
+### 2. Configurer le bundle
 
 ```yaml
 bundles:

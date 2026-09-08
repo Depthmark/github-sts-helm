@@ -514,3 +514,23 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "policyResolution must be one of org_first, repo_first, org_only"
+
+  # -------------------------------------------------------------------------
+  # Bundle enforcement
+  #
+  # The server refuses to start without a valid bundle_enforcement, so the key
+  # is unconditional rather than rendered only alongside a bundle list.
+  # -------------------------------------------------------------------------
+  - it: should render bundle_enforcement by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'bundle_enforcement: "optional"'
+
+  - it: should render bundle_enforcement required when set
+    set:
+      bundleEnforcement: "required"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'bundle_enforcement: "required"'

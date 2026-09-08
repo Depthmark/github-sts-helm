@@ -18,9 +18,7 @@ Le bloc `tls` couvre les déploiements où cela ne suffit pas :
 
 Une image serveur qui prend en charge la section de configuration `server.tls`. Un serveur qui ignore cette section continue de servir du HTTP en clair alors que le chart a déjà pointé les sondes vers HTTPS : les pods échouent à la disponibilité et la release ne termine jamais son déploiement.
 
-La prise en charge est arrivée après la version serveur `v0.0.3` et, à l'heure où ces lignes sont écrites, aucune version publiée ne l'embarque. `image.tag` vaut par défaut l'`appVersion` du chart : une installation par défaut tire donc une image sans `server.tls`. Renseignez `image.tag` avec une version qui en dispose. La page [Compatibilité]({{< relref "/integrations/compatibility" >}}) liste les combinaisons vérifiées.
-
-Une image assez récente pour `server.tls` l'est aussi pour exiger une valeur `bundle_enforcement` de premier niveau, que le chart ne génère pas. Fournissez-la via `extraEnv` comme décrit sous [Bundles de politiques]({{< relref "values#bundles-de-politiques" >}}), sinon le pod ne démarre pas, avant même que TLS entre en jeu.
+L'`appVersion` du chart épingle une version qui prend en charge `server.tls` : une installation par défaut n'a donc besoin d'aucun `image.tag`. La page [Compatibilité]({{< relref "/integrations/compatibility" >}}) liste les combinaisons vérifiées.
 
 Un certificat et une clé dans un Secret dont vous êtes propriétaire. Le chart ne génère jamais de certificat. Un Secret `kubernetes.io/tls` produit par cert-manager, par une PKI interne ou par `kubectl create secret tls` convient tel quel, puisque `tls.certKey` et `tls.keyKey` valent déjà `tls.crt` et `tls.key`. Un certificat auto-signé est un outil de test local : il force chaque client à faire confiance à une CA créée pour une seule charge de travail, soit l'inverse de ce à quoi sert un certificat. La page [Tests TLS en local]({{< relref "/operations/tls-local-testing" >}}) couvre ce cas.
 

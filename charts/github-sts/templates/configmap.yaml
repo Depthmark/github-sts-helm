@@ -8,6 +8,8 @@ metadata:
     {{- include "github-sts.labels" . | nindent 4 }}
 data:
   config.yaml: |
+    bundle_enforcement: {{ .Values.bundleEnforcement | quote }}
+
     server:
       host: "0.0.0.0"
       port: {{ .Values.service.targetPort }}

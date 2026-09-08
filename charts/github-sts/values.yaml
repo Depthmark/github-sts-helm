@@ -433,16 +433,23 @@ policy:
   cacheTtl: "60s"
 
 # Enterprise Rego/OPA policy bundles
+# -- Bundle enforcement mode: `optional` or `required`. The server requires a
+# valid value here and refuses to start without one, so the chart always
+# renders it. `optional` evaluates whatever `bundles` lists and falls back to
+# YAML-only trust-policy authorization when the list is empty. `required` turns
+# the Rego layer into a startup precondition: at least one bundle must be
+# configured, every entry needs an `expected_policy_revision` and an `oci://`
+# ref pinned to `@sha256:<64 hex>`, `allow_mutable_ref` and
+# `cosign.skip_verification` must stay false, and a bundle that applies to
+# every app (`apps: []`) must use `fail_mode: closed`.
+bundleEnforcement: "optional"
 # -- Signed Rego/OPA bundles evaluated after the YAML trust policy allows and
 # before a GitHub installation token is minted. Entries are passed through to
 # the server's top-level `bundles:` config without validation or renaming, so
-# use the server's snake_case field names. Requires a server build with bundle
-# support: v0.0.3 ignores the key silently and runs with no Rego layer. Such a
-# build also requires a top-level `bundle_enforcement` value, which this chart
-# does not render; set `GITHUBSTS_BUNDLE_ENFORCEMENT` through `extraEnv`. For a
-# local file ref, `registry.auth.password_file`, or `cosign.public_key_ref`,
-# mount the file with `extraVolumes` and `extraVolumeMounts` and point the
-# field at the mounted path.
+# use the server's snake_case field names. For a local file ref,
+# `registry.auth.password_file`, or `cosign.public_key_ref`, mount the file
+# with `extraVolumes` and `extraVolumeMounts` and point the field at the
+# mounted path.
 bundles: []
   # - name: enterprise-baseline
   #   apps: []
