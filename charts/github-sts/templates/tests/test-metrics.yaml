@@ -14,7 +14,7 @@ spec:
     - name: metrics-check
       image: {{ .Values.tests.image | quote }}
       {{- if include "github-sts.metricsEndpointAuthEnabled" . }}
-      {{- include "github-sts.testEnv" (dict "ctx" $ "enabled" (include "github-sts.metricsEndpointAuthEnabled" .) "key" .Values.endpointAuth.metricsKey) | nindent 6 }}
+      {{- include "github-sts.testEnv" (dict "ctx" $ "key" .Values.endpointAuth.metricsKey) | nindent 6 }}
       {{- end }}
       command:
         - /bin/sh

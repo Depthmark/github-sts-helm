@@ -508,11 +508,18 @@ endpointAuth:
   # -- Existing Secret holding the tokens. When empty and a token is set below,
   # the chart creates a Secret of its own. Point this at your own Secret when
   # the token comes from an external secret manager. The chart then renders no
-  # Secret and only references it.
+  # Secret and only references it, and the two key names below declare which
+  # tokens that Secret actually holds.
   existingSecret: ""
-  # -- Key inside the Secret holding the /health bearer token.
+  # -- Key inside the Secret holding the /health bearer token. Clear it to
+  # declare that `existingSecret` holds no health token, which leaves /health
+  # unauthenticated and lets the liveness probe stay on `httpGet`.
   healthKey: "health-auth-token"
-  # -- Key inside the Secret holding the /metrics bearer token.
+  # -- Key inside the Secret holding the /metrics bearer token. Clear it to
+  # declare that `existingSecret` holds no metrics token. The chart then wires
+  # no bearer token into the ServiceMonitor or PodMonitor, which would
+  # otherwise point Prometheus at a key that does not exist and break the
+  # scrape.
   metricsKey: "metrics-auth-token"
   # -- Bearer token required on `GET /health`. Empty leaves /health open.
   # `/ready` is never authenticated by the broker, so readiness and startup

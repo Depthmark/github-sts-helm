@@ -176,6 +176,17 @@ tests:
             name: test-github-sts-endpoint-auth
             key: metrics-auth-token
 
+  - it: should omit the ServiceMonitor bearer token when the external Secret holds no metrics key
+    template: servicemonitor.yaml
+    set:
+      serviceMonitor.enabled: true
+      endpointAuth.existingSecret: health-only
+      endpointAuth.metricsKey: ""
+      probes.mode: tcpSocket
+    asserts:
+      - isNull:
+          path: spec.endpoints[0].bearerTokenSecret
+
   - it: should use the external endpoint auth Secret for ServiceMonitor
     template: servicemonitor.yaml
     set:
@@ -341,6 +352,17 @@ tests:
           value:
             name: test-github-sts-endpoint-auth
             key: metrics-auth-token
+
+  - it: should omit the PodMonitor bearer token when the external Secret holds no metrics key
+    template: podmonitor.yaml
+    set:
+      podMonitor.enabled: true
+      endpointAuth.existingSecret: health-only
+      endpointAuth.metricsKey: ""
+      probes.mode: tcpSocket
+    asserts:
+      - isNull:
+          path: spec.podMetricsEndpoints[0].bearerTokenSecret
 
   - it: should use the external endpoint auth Secret for PodMonitor
     template: podmonitor.yaml

@@ -121,7 +121,7 @@ tests:
       endpointAuth.existingSecret: shared-endpoint-auth
     asserts:
       - failedTemplate:
-          errorMessage: "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline or set probes.mode to tcpSocket"
+          errorMessage: "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline, clear endpointAuth.healthKey if that Secret holds no health token, or set probes.mode to tcpSocket"
 
   - it: should allow an external Secret with TCP probes
     template: deployment.yaml
@@ -134,3 +134,82 @@ tests:
       - equal:
           path: spec.template.spec.containers[0].livenessProbe.tcpSocket.port
           value: http
+
+  # -------------------------------------------------------------------------
+  # An existingSecret is opaque to the chart, so the key names declare what it
+  # holds. Clearing a key must retract every reference to that token.
+  # -------------------------------------------------------------------------
+
+  - it: should not reference a metrics key an external Secret does not hold
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: health-only
+      endpointAuth.metricsKey: ""
+      probes.mode: tcpSocket
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_METRICS_AUTH_TOKEN
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_HEALTH_AUTH_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: health-only
+                key: health-auth-token
+                optional: true
+
+  - it: should leave the metrics hook unauthenticated for a health-only Secret
+    template: tests/test-metrics.yaml
+    set:
+      endpointAuth.existingSecret: health-only
+      endpointAuth.metricsKey: ""
+      probes.mode: tcpSocket
+    asserts:
+      - isNull:
+          path: spec.containers[0].env
+
+  - it: should allow an HTTP liveness probe when an external Secret holds no health token
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: metrics-only
+      endpointAuth.healthKey: ""
+    asserts:
+      - isKind:
+          of: Deployment
+      - isNull:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.httpHeaders
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: GITHUBSTS_HEALTH_AUTH_TOKEN
+
+  - it: should reject an inline health token with no key to store it under
+    template: deployment.yaml
+    set:
+      endpointAuth.healthToken: orphan
+      endpointAuth.healthKey: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "endpointAuth.healthToken needs endpointAuth.healthKey to name the Secret key holding it"
+
+  - it: should reject an inline metrics token with no key to store it under
+    template: deployment.yaml
+    set:
+      endpointAuth.metricsToken: orphan
+      endpointAuth.metricsKey: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "endpointAuth.metricsToken needs endpointAuth.metricsKey to name the Secret key holding it"
+
+  - it: should reject an external Secret with every key cleared
+    template: deployment.yaml
+    set:
+      endpointAuth.existingSecret: shared-endpoint-auth
+      endpointAuth.healthKey: ""
+      endpointAuth.metricsKey: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: "endpointAuth.existingSecret has no effect with both endpointAuth.healthKey and endpointAuth.metricsKey cleared — name at least one key the Secret holds"

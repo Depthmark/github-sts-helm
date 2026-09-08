@@ -54,7 +54,7 @@ kubectl create secret generic github-sts-endpoint-auth \
 kubectl describe secret github-sts-endpoint-auth --namespace github-sts
 ```
 
-Confirmez que `metrics-auth-token` figure dans la section `Data`, puis réglez `endpointAuth.existingSecret: github-sts-endpoint-auth` et `endpointAuth.metricsKey: metrics-auth-token`. Vérifiez-le de nouveau après la mise à niveau et après chaque rotation. Le Deployment rend les références au Secret et à la clé facultatives : un objet ou une clé manquants laissent donc le pod démarrer avec l'authentification des points d'entrée désactivée. La sonde HTTP de vivacité par défaut ne peut pas non plus lire un Secret externe pour construire un en-tête `Authorization`. Cette configuration exige donc `probes.mode: tcpSocket` tant que la sonde de vivacité est active.
+Confirmez que `metrics-auth-token` figure dans la section `Data`, puis réglez `endpointAuth.existingSecret: github-sts-endpoint-auth` et `endpointAuth.metricsKey: metrics-auth-token`. Vérifiez-le de nouveau après la mise à niveau et après chaque rotation. Le Deployment rend les références au Secret et à la clé facultatives : un objet ou une clé manquants laissent donc le pod démarrer avec l'authentification des points d'entrée désactivée. Videz `endpointAuth.healthKey` lorsque ce Secret ne contient aucun jeton de santé, afin que le chart ne référence pas une clé absente. La sonde HTTP de vivacité par défaut ne peut pas non plus lire un Secret externe pour construire un en-tête `Authorization` : un jeton de santé externe exige donc `probes.mode: tcpSocket` tant que la sonde de vivacité est active, tandis qu'un Secret réservé aux métriques laisse la sonde en `httpGet`.
 
 ## Ce qui déclenche un redémarrage
 

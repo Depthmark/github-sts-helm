@@ -188,16 +188,30 @@ httpGet:
 {{- .Values.endpointAuth.metricsToken | default .Values.metrics.authToken -}}
 {{- end }}
 
-{{/* Whether any endpoint token source is configured. */}}
-{{- define "github-sts.endpointAuthEnabled" -}}
-{{- if or .Values.endpointAuth.existingSecret .Values.endpointAuth.healthToken (include "github-sts.endpointAuthMetricsToken" .) -}}
+{{/*
+Whether an endpoint is authenticated. An inline token is proof on its own,
+because the chart writes the Secret itself. An `existingSecret` is opaque to
+the chart, so the key names stand in for its contents: a non-empty key asserts
+the token is there, and clearing a key says this Secret carries no token for
+that endpoint. That distinction matters for the monitors — the Prometheus
+Operator rejects a `bearerTokenSecret` whose key is missing, so guessing a key
+into an external Secret breaks scraping outright.
+*/}}
+{{- define "github-sts.healthEndpointAuthEnabled" -}}
+{{- if or .Values.endpointAuth.healthToken (and .Values.endpointAuth.existingSecret .Values.endpointAuth.healthKey) -}}
 true
 {{- end -}}
 {{- end }}
 
-{{/* Whether the metrics endpoint may require bearer authentication. */}}
 {{- define "github-sts.metricsEndpointAuthEnabled" -}}
-{{- if or .Values.endpointAuth.existingSecret (include "github-sts.endpointAuthMetricsToken" .) -}}
+{{- if or (include "github-sts.endpointAuthMetricsToken" .) (and .Values.endpointAuth.existingSecret .Values.endpointAuth.metricsKey) -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/* Whether any endpoint token source is configured. */}}
+{{- define "github-sts.endpointAuthEnabled" -}}
+{{- if or (include "github-sts.healthEndpointAuthEnabled" .) (include "github-sts.metricsEndpointAuthEnabled" .) -}}
 true
 {{- end -}}
 {{- end }}
@@ -222,8 +236,17 @@ true
 {{- if and .Values.metrics.authToken .Values.endpointAuth.existingSecret -}}
 {{- fail "metrics.authToken is deprecated and cannot be combined with endpointAuth.existingSecret — move the token into that Secret under endpointAuth.metricsKey and clear metrics.authToken" -}}
 {{- end -}}
-{{- if and .Values.endpointAuth.existingSecret .Values.probes.liveness.enabled (eq (include "github-sts.probeMode" .) "httpGet") -}}
-{{- fail "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline or set probes.mode to tcpSocket" -}}
+{{- if and (include "github-sts.healthEndpointAuthEnabled" .) (not .Values.endpointAuth.healthToken) .Values.probes.liveness.enabled (eq (include "github-sts.probeMode" .) "httpGet") -}}
+{{- fail "endpointAuth.existingSecret cannot supply the liveness HTTP header — set endpointAuth.healthToken inline, clear endpointAuth.healthKey if that Secret holds no health token, or set probes.mode to tcpSocket" -}}
+{{- end -}}
+{{- if and .Values.endpointAuth.healthToken (not .Values.endpointAuth.healthKey) -}}
+{{- fail "endpointAuth.healthToken needs endpointAuth.healthKey to name the Secret key holding it" -}}
+{{- end -}}
+{{- if and (include "github-sts.endpointAuthMetricsToken" .) (not .Values.endpointAuth.metricsKey) -}}
+{{- fail "endpointAuth.metricsToken needs endpointAuth.metricsKey to name the Secret key holding it" -}}
+{{- end -}}
+{{- if and .Values.endpointAuth.existingSecret (not .Values.endpointAuth.healthKey) (not .Values.endpointAuth.metricsKey) -}}
+{{- fail "endpointAuth.existingSecret has no effect with both endpointAuth.healthKey and endpointAuth.metricsKey cleared — name at least one key the Secret holds" -}}
 {{- end -}}
 {{- end }}
 
@@ -290,7 +313,6 @@ fi
 
 {{/* Secret-backed bearer token for an endpoint test hook. */}}
 {{- define "github-sts.testEnv" -}}
-{{- if .enabled }}
 env:
   - name: STS_TEST_TOKEN
     valueFrom:
@@ -298,5 +320,4 @@ env:
         name: {{ include "github-sts.endpointAuthSecretName" .ctx }}
         key: {{ .key }}
         optional: true
-{{- end }}
 {{- end }}

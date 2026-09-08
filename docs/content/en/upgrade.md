@@ -53,7 +53,7 @@ kubectl create secret generic github-sts-endpoint-auth \
 kubectl describe secret github-sts-endpoint-auth --namespace github-sts
 ```
 
-Confirm that `metrics-auth-token` appears in the `Data` section, then set `endpointAuth.existingSecret: github-sts-endpoint-auth` and `endpointAuth.metricsKey: metrics-auth-token`. Check it again after the upgrade and after every rotation. The Deployment marks the Secret and key references optional, so a missing object or key lets the pod start with endpoint authentication disabled. The default HTTP liveness probe also cannot read an external Secret to construct an `Authorization` header, so this configuration requires `probes.mode: tcpSocket` while liveness is enabled.
+Confirm that `metrics-auth-token` appears in the `Data` section, then set `endpointAuth.existingSecret: github-sts-endpoint-auth` and `endpointAuth.metricsKey: metrics-auth-token`. Check it again after the upgrade and after every rotation. The Deployment marks the Secret and key references optional, so a missing object or key lets the pod start with endpoint authentication disabled. Clear `endpointAuth.healthKey` when that Secret holds no health token, so the chart does not reference a key it does not contain. The default HTTP liveness probe also cannot read an external Secret to construct an `Authorization` header, so an external *health* token requires `probes.mode: tcpSocket` while liveness is enabled; a metrics-only Secret leaves the probe on `httpGet`.
 
 ## What triggers a restart
 
