@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.0](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.0.4...github-sts-v0.1.0) (2026-09-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* add health and prometheus endpoint auth support ([#37](https://github.com/Depthmark/github-sts-helm/issues/37))
+* add support for multi app instances ([#38](https://github.com/Depthmark/github-sts-helm/issues/38))
+
+### Features
+
+* add health and prometheus endpoint auth support ([#37](https://github.com/Depthmark/github-sts-helm/issues/37)) ([b52f7a6](https://github.com/Depthmark/github-sts-helm/commit/b52f7a6de564b31a8b96f27461e35cf1810a4b86))
+* add support for multi app instances ([#38](https://github.com/Depthmark/github-sts-helm/issues/38)) ([e991846](https://github.com/Depthmark/github-sts-helm/commit/e9918464e335ab733f9ee8cba80afd2d22b8a5b9))
+
+
+### Bug Fixes
+
+* split the routes that can be reached outside of the cluser ([#39](https://github.com/Depthmark/github-sts-helm/issues/39)) ([aa2291c](https://github.com/Depthmark/github-sts-helm/commit/aa2291cc09f94f992000a8a2339ba302ed7ff572))
+
 ## [0.0.4](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.0.3...github-sts-v0.0.4) (2026-08-21)
 
 
