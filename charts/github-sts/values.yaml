@@ -469,6 +469,34 @@ oidc:
     - "https://token.actions.githubusercontent.com"
     # - "https://accounts.google.com"
     # - "https://sts.windows.net/{tenant}/"
+  # -- Require GitHub.com Actions tokens to carry immutable owner and
+  # repository IDs inside the `sub` claim, in the form
+  # `repo:OWNER@OWNER-ID/REPO@REPO-ID:ref:refs/heads/BRANCH`. This is the
+  # broker's own default, so rendering it changes nothing until you set it
+  # to false.
+  #
+  # It gates only what `sub` must contain. The separate signed
+  # `repository_id` and `repository_owner_id` claims are mandatory for every
+  # GitHub.com token either way, and the broker cross-checks them against
+  # the subject before audience, replay or policy work. Tokens from any
+  # other issuer are unaffected, and the immutable format does not exist on
+  # GitHub Enterprise Server.
+  #
+  # Repositories created before 2026-07-15 keep the name-only subject format
+  # until they opt in through the organization or repository Actions OIDC
+  # setting, or the REST API. Until a repository has opted in, its exchanges
+  # are rejected with
+  # `githubsts_oidc_validation_errors_total{reason="github_identity_immutable_subject_required"}`.
+  #
+  # Set false only as an explicit, temporary migration posture: the legacy
+  # name-only subject is vulnerable to repository namespace reuse, so an
+  # attacker who acquires an abandoned owner/repo name can present a subject
+  # that matches a trust policy written for the original. The broker logs a
+  # startup warning, reports
+  # `security.require_immutable_subject_claims: false` on `/health`, and
+  # drops the `githubsts_oidc_immutable_subject_claims_required` gauge to 0
+  # so the posture is alertable.
+  requireImmutableSubjectClaims: true
   # -- Server-wide required `aud` claim. When set, every token must carry
   # this value before any policy lookup or JTI reservation runs — defense
   # in depth on top of the per-policy `audience:` field. Leave empty to
