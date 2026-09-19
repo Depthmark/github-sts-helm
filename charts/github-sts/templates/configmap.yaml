@@ -88,6 +88,10 @@ data:
       allowed_issuers: []
       {{- end }}
       required_audience: {{ .Values.oidc.requiredAudience | default "" | quote }}
+      {{- /* No `| default true`: Helm's default function treats false as empty,
+      which would silently pin this to true and make the escape hatch
+      unreachable. The chart's values.yaml carries the default instead. */}}
+      require_immutable_subject_claims: {{ .Values.oidc.requireImmutableSubjectClaims }}
       {{- with .Values.oidc.trustedJwksHosts }}
       trusted_jwks_hosts:
         {{- toYaml . | nindent 8 }}

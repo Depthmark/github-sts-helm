@@ -150,6 +150,33 @@ tests:
           path: data["config.yaml"]
           pattern: 'required_audience: "https://sts.example.com"'
 
+  - it: should default require_immutable_subject_claims to true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'require_immutable_subject_claims: true'
+
+  - it: should render require_immutable_subject_claims false when disabled
+    set:
+      oidc.requireImmutableSubjectClaims: false
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'require_immutable_subject_claims: false'
+      # Guards the `| default true` trap: Helm's default function treats false
+      # as empty, so a regression there renders true and silently removes the
+      # escape hatch.
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'require_immutable_subject_claims: true'
+
+  - it: should render require_immutable_subject_claims as a bare boolean
+    asserts:
+      # A quoted value fails the broker's strict YAML decode into a bool field.
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'require_immutable_subject_claims: "'
+
   - it: should omit trusted_jwks_hosts when unset
     asserts:
       - notMatchRegex:
