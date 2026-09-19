@@ -85,6 +85,46 @@ Prometheus ServiceMonitor is enabled. Metrics will be scraped from {{ .Values.se
 Prometheus PodMonitor is enabled. Metrics will be scraped from {{ .Values.podMonitor.path }}.
 {{- end }}
 
+{{- if .Values.tracing.enabled }}
+
+Tracing is enabled: exporting OTLP over {{ .Values.tracing.protocol | default "grpc" }} to
+{{ include "github-sts.tracingEndpoint" . }}{{ if .Values.tracing.insecure }} (plaintext){{ end }},
+head sample ratio {{ .Values.tracing.sampleRatio }}.
+  NOTE: the pinned server 0.1.1 carries the exporter but no instrumentation,
+  so it exports nothing yet. Spans need a release newer than 0.1.1.
+  Confirm the exporter started:
+    kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "github-sts.fullname" . }} | grep "tracing enabled"
+  Probe and scrape paths are not traced, so drive one /sts/exchange before
+  expecting anything in the collector.
+{{- if or .Values.networkPolicy.native.enabled .Values.networkPolicy.cilium.enabled }}
+
+  WARNING: a NetworkPolicy is rendered for this release and egress is
+  default-deny, so spans will be dropped with no error anywhere until you allow
+  egress to the collector. The chart cannot derive the rule — a DNS name does
+  not tell it the collector's pod labels. Add one under
+{{- if .Values.networkPolicy.native.enabled }}
+    networkPolicy.native.extraEgress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: observability
+        ports:
+          - port: {{ ternary 4318 4317 (hasPrefix "http" (.Values.tracing.protocol | default "grpc" | toString | lower)) }}
+            protocol: TCP
+{{- end }}
+{{- if .Values.networkPolicy.cilium.enabled }}
+    networkPolicy.cilium.extraEgress:
+      - toEndpoints:
+          - matchLabels:
+              io.kubernetes.pod.namespace: observability
+        toPorts:
+          - ports:
+              - port: "{{ ternary 4318 4317 (hasPrefix "http" (.Values.tracing.protocol | default "grpc" | toString | lower)) }}"
+                protocol: TCP
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- if .Values.tls.enabled }}
 
 TLS is terminated by github-sts itself on port {{ .Values.service.targetPort }}, using the

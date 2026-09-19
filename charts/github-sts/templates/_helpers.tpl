@@ -461,3 +461,64 @@ env:
         key: {{ .key }}
         optional: true
 {{- end }}
+
+{{/*
+Normalize tracing.endpoint into the bare `host:port` the OTLP exporter expects.
+
+The server hands this value to otlptracegrpc/otlptracehttp `WithEndpoint`,
+which takes an address and not a URL, so a scheme is accepted by the server's
+own config validation and then fails when the first batch is exported —
+visible only in the pod log, with an empty trace backend as the symptom. Reject
+it here instead, where the operator is still looking at the terminal.
+
+A missing port gets the protocol default (4317 grpc, 4318 http). An IPv6
+address must carry its own brackets, e.g. `[::1]:4317`.
+*/}}
+{{- define "github-sts.tracingEndpoint" -}}
+{{- $t := .Values.tracing -}}
+{{- $ep := $t.endpoint | default "" | toString | trim -}}
+{{- if contains "://" $ep -}}
+{{- fail (printf "tracing.endpoint must be host:port with no scheme (got %q) — the OTLP exporter takes an address, not a URL; choose plaintext or TLS with tracing.insecure" $ep) -}}
+{{- end -}}
+{{- if regexMatch ":[0-9]+$" $ep -}}
+{{- $ep -}}
+{{- else -}}
+{{- printf "%s:%s" $ep (ternary "4318" "4317" (hasPrefix "http" ($t.protocol | default "grpc" | toString | lower))) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Fail fast on tracing values the server would reject at startup, plus the two it
+would accept and then quietly do nothing useful with. These mirror the server's
+own validation so a bad value stops `helm upgrade` rather than becoming a
+CrashLoopBackOff or a trace backend that stays empty.
+
+Only the name -> key direction of headersSecret is checked: `key` carries a
+default, so a missing `name` alongside it is the normal disabled state, not a
+mistake.
+*/}}
+{{- define "github-sts.validateTracing" -}}
+{{- $t := .Values.tracing -}}
+{{- if $t.enabled -}}
+{{- if not ($t.endpoint | default "" | toString | trim) -}}
+{{- fail "tracing.enabled requires tracing.endpoint — the collector address as host:port (localhost:4317 for a sidecar collector)" -}}
+{{- end -}}
+{{- if not (has ($t.protocol | default "grpc" | toString | lower) (list "grpc" "http" "http/protobuf")) -}}
+{{- fail (printf "tracing.protocol must be grpc or http (got %q)" ($t.protocol | toString)) -}}
+{{- end -}}
+{{- if kindIs "invalid" $t.sampleRatio -}}
+{{- fail "tracing.sampleRatio must be a number between 0 and 1" -}}
+{{- end -}}
+{{- if or (lt (float64 $t.sampleRatio) 0.0) (gt (float64 $t.sampleRatio) 1.0) -}}
+{{- fail (printf "tracing.sampleRatio must be between 0 and 1 (got %v)" $t.sampleRatio) -}}
+{{- end -}}
+{{- if not ($t.timeout | default "" | toString | trim) -}}
+{{- fail "tracing.timeout must be a positive Go duration string (e.g. \"10s\") when tracing is enabled" -}}
+{{- end -}}
+{{- $_ := include "github-sts.tracingEndpoint" . -}}
+{{- end -}}
+{{- $hs := $t.headersSecret | default dict -}}
+{{- if and $hs.name (not $hs.key) -}}
+{{- fail "tracing.headersSecret.name is set but tracing.headersSecret.key is empty — name the key holding the OTLP header string" -}}
+{{- end -}}
+{{- end }}

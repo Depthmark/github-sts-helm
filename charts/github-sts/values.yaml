@@ -695,6 +695,109 @@ podMonitor:
   # -- Honor labels
   honorLabels: false
 
+# Distributed tracing (OpenTelemetry). Off by default.
+#
+# NO PUBLISHED RELEASE EMITS SPANS YET. The 0.1.1 this chart's `appVersion`
+# pins initializes the OTLP exporter and installs W3C propagation, but
+# registers no HTTP instrumentation, so enabling this block is
+# configuration-valid and exports nothing at all. The `otelhttp` handler that
+# opens the spans described below is on the server's main branch, unreleased.
+# Until `appVersion` moves to a release carrying it, treat everything under
+# "what the instrumented build emits" as a forward description.
+#
+# An image predating the `tracing:` config key rejects it outright — the server
+# decodes its config with KnownFields(true) — but the chart omits the whole
+# section when `enabled` is false, so a pinned older `image.tag` stays safe.
+#
+# What the instrumented build emits: one root server span per request, by the
+# handler that sits outermost in the middleware chain. The span is named by
+# route — "POST /sts/exchange", never the raw path, because a path carries
+# repository names and would make span names unbounded — and carries
+# `http.route` plus roughly thirty `sts.*` and `github.*` attributes: app and
+# instance, scope, identity, result, OIDC issuer and subject, source and target
+# repository, the four-set permission chain, policy provenance, the bundle
+# decision, client address and user agent. They are built from the same audit
+# event as the audit line, at the one point every exit path of the handler
+# funnels through, so a span and its audit record cannot drift apart.
+#
+# A policy denial leaves the span status Unset rather than Error — a denial is
+# a working broker doing its job, and marking it Error would make span-derived
+# error rates track how often the trust policy fired. The outcome lives in the
+# `sts.result` attribute instead. Error is reserved for a cache fault, an
+# upstream GitHub error, and the bundle conditions that fail closed with a 503.
+#
+# Probe and scrape paths (/health, /ready, /healthz, /readyz, /metrics) are
+# filtered and produce no spans, so a one-second kubelet probe cannot outnumber
+# real exchanges in the backend. An inbound traceparent is honoured rather than
+# replaced, so an exchange joins the calling workflow's trace.
+#
+# What it does NOT do yet: per-stage child spans. One span per request means a
+# slow exchange is a slow span with its full authorization context, but the
+# latency is not broken down across OIDC validation, JTI reservation, policy
+# evaluation and the GitHub mint. That breakdown lands in a later release.
+#
+# Note that `trace_id` is 32 hex characters from v0.1.1 onward whether or not
+# this is enabled; the widening came with the image, not with this setting.
+# That part is already true of the pinned release.
+#
+# Two lines turn export on:
+#   tracing.enabled=true
+#   tracing.endpoint=otel-collector.observability:4317
+#
+# Traces are sampled diagnostics, not an audit trail: the audit log stays the
+# system of record for authorization decisions.
+tracing:
+  # -- Export OTLP traces to `tracing.endpoint`. When false the server installs
+  # a no-op tracer, so instrumentation costs effectively nothing.
+  enabled: false
+  # -- Collector address as bare `host:port` — no scheme. The server passes
+  # this to the OTLP exporter's `WithEndpoint`, which does not parse URLs, so
+  # `http://collector:4317` fails at export time rather than at startup; the
+  # chart rejects it during rendering instead. The protocol default port
+  # (4317 for grpc, 4318 for http) is appended when you omit one. Use
+  # `localhost:4317` for a collector running as a sidecar. Required when
+  # `tracing.enabled` is true. An IPv6 literal must carry its own brackets and
+  # port, e.g. `[::1]:4317`.
+  endpoint: ""
+  # -- OTLP transport: `grpc` (default) or `http`.
+  protocol: "grpc"
+  # -- Export over plaintext. Defaults to true because the deployment this is
+  # built for is a hop to an in-cluster collector on the pod network, where
+  # there is no certificate to verify and TLS would only fail the handshake.
+  # Set to false when exporting straight to a vendor endpoint over the
+  # internet, and pair it with `tracing.headersSecret` for the API key.
+  insecure: true
+  # -- Head sampling ratio between 0 and 1, applied `ParentBased` so an
+  # inbound sampling decision is respected. Keep this at 1.0 and tail-sample in
+  # the Collector instead: the exchange result is not known when a head sampler
+  # runs, so sampling down here throws away denials and failovers at random —
+  # exactly the traces worth keeping for a security broker.
+  sampleRatio: 1.0
+  # -- Per-export timeout (Go duration string). Note that this always wins over
+  # `OTEL_EXPORTER_OTLP_TIMEOUT`, which the server never consults.
+  timeout: "10s"
+  # -- `service.name` resource attribute. Empty uses the server's own default,
+  # `github-sts`. Override it when two releases export to the same tracing
+  # backend and need to be told apart; leaving it alone keeps the value that
+  # shipped dashboards and alerts key on.
+  serviceName: ""
+  # -- `deployment.environment` resource attribute (e.g. `staging`, `prod`).
+  # Omitted from the config when empty.
+  environment: ""
+  # Authentication headers for a collector that requires them. These are
+  # credentials, so the chart passes them through the environment as
+  # `OTEL_EXPORTER_OTLP_HEADERS` instead of rendering them into the ConfigMap,
+  # which is readable by anyone holding `get configmaps` in the namespace. The
+  # server leaves its own `headers` field unset, which is what lets the
+  # standard OTEL variable take effect.
+  headersSecret:
+    # -- Existing Secret holding the header string. Empty disables the
+    # environment variable entirely.
+    name: ""
+    # -- Key inside `headersSecret.name`. The value uses OTLP header syntax:
+    # comma-separated `key=value` pairs, e.g. `api-key=abc,x-tenant=acme`.
+    key: "otlp-headers"
+
 # Per-IP rate limiting on the /sts/exchange endpoint
 rateLimit:
   # -- Enable per-IP rate limiting

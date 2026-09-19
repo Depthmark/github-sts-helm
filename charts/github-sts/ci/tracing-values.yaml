@@ -1,0 +1,18 @@
+# CI test values: OTLP tracing over HTTP with secret-backed collector headers
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"
+tracing:
+  enabled: true
+  endpoint: "otel-collector.observability.svc.cluster.local"
+  protocol: "http"
+  insecure: false
+  sampleRatio: 0.5
+  timeout: "5s"
+  serviceName: "github-sts-ci"
+  environment: "ci"
+  headersSecret:
+    name: "otlp-collector-headers"
+    key: "otlp-headers"

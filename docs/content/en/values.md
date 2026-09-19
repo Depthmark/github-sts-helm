@@ -415,6 +415,81 @@ The alternative to ServiceMonitor: scrapes pods directly, which is what you want
 
 The Prometheus Operator resolves `bearerTokenSecret` in the namespace that contains the ServiceMonitor or PodMonitor. If `serviceMonitor.namespace` or `podMonitor.namespace` differs from the release namespace, mirror the token Secret into the monitor namespace. Keep the generated name and key, or set `bearerTokenSecret` to the mirrored Secret's `name` and `key`.
 
+## Tracing
+
+OTLP trace export. **No published server release emits spans yet.** The 0.1.1 this chart's `appVersion` pins initializes the OTLP exporter and installs W3C propagation, but registers no HTTP instrumentation, so enabling tracing is configuration-valid and exports nothing at all. The `otelhttp` handler described below is on the server's main branch, unreleased — treat the rest of this section as a forward description until `appVersion` moves to a release carrying it. The chart omits the whole `tracing:` section from the rendered config when disabled, so pinning an older `image.tag` stays safe.
+
+The instrumented build emits one root server span per request, opened by the `otelhttp` handler that sits outermost in the middleware chain. The span is named by route — `POST /sts/exchange`, never the raw path, because a path carries repository names and would make span names unbounded — and carries `http.route` alongside roughly thirty `sts.*` and `github.*` attributes: app and instance, scope, identity, result, OIDC issuer and subject, source and target repository with owners and IDs, the four-set permission chain (installation, policy, requested, granted), policy provenance, the bundle decision, client address and user agent. They are built from the same audit event as the audit line, at the one point every exit path of the handler funnels through, so a span and its audit record cannot describe the same exchange differently.
+
+A policy denial leaves the span status `Unset` rather than `Error`. A denial is a working broker doing its job, and marking it `Error` would make span-derived error rates track how often the trust policy fired — the authorization outcome lives in the `sts.result` attribute instead, where every result stays distinguishable. `Error` is reserved for a cache fault, an upstream GitHub error, and the bundle conditions that fail closed with a 503.
+
+Probe and scrape paths — `/health`, `/ready`, `/healthz`, `/readyz`, `/metrics` — are filtered and produce no spans, so a one-second kubelet probe cannot outnumber real exchanges in your backend. An inbound `traceparent` is honoured rather than replaced by a fresh root, so an exchange joins the calling workflow's trace. The OTel HTTP metrics that `otelhttp` would otherwise emit are pinned off, so nothing appears alongside the chart's `githubsts_` metrics.
+
+**There are no per-stage child spans yet.** One span per request means a slow exchange shows up as a slow span with its full authorization context, but the latency is not broken down across OIDC validation, JTI reservation, policy load and evaluation, Rego bundles, and the GitHub mint. That breakdown is designed and lands in a later server release.
+
+Traces are sampled diagnostics; the audit log remains the system of record for authorization decisions. The `trace_id` widening to 32 hex characters is independent of this setting — it arrived with v0.1.1 and applies whether tracing is on or off.
+
+Turning export on is two values:
+
+```yaml
+tracing:
+  enabled: true
+  endpoint: otel-collector.observability:4317
+```
+
+| Value | Default | Effect |
+|---|---|---|
+| `tracing.enabled` | `false` | Exports OTLP traces. When false the server installs a no-op tracer, so instrumentation costs effectively nothing. |
+| `tracing.endpoint` | `""` | Collector address as bare `host:port`, no scheme. Required when tracing is enabled. The chart appends the protocol default port (4317 grpc, 4318 http) when you omit one, and rejects a URL during rendering: the server passes this to the OTLP exporter's `WithEndpoint`, which takes an address, so a scheme would fail at export time with an empty trace backend as the only symptom. Use `localhost:4317` for a sidecar collector, and brackets for an IPv6 literal (`[::1]:4317`). |
+| `tracing.protocol` | `"grpc"` | OTLP transport, `grpc` or `http`. |
+| `tracing.insecure` | `true` | Exports over plaintext. True by default because the intended hop is to an in-cluster collector on the pod network, where there is no certificate to verify. Set it to false when exporting straight to a vendor endpoint over the internet. |
+| `tracing.sampleRatio` | `1.0` | Head sampling ratio, applied `ParentBased` so an inbound sampling decision is respected. Keep it at `1.0` and tail-sample in the Collector: the exchange result is unknown when a head sampler runs, so sampling here discards denials and failovers at random — the traces most worth keeping. |
+| `tracing.timeout` | `"10s"` | Per-export timeout. This always wins over `OTEL_EXPORTER_OTLP_TIMEOUT`, which the server never consults. |
+| `tracing.serviceName` | `""` | `service.name` resource attribute. Empty uses the server default, `github-sts`. Set it when two releases export to the same backend and have to be told apart. |
+| `tracing.environment` | `""` | `deployment.environment` resource attribute. Omitted from the config when empty. |
+| `tracing.headersSecret.name` | `""` | Existing Secret holding authentication headers for a collector that requires them. Rendered as an `OTEL_EXPORTER_OTLP_HEADERS` environment variable rather than written into the ConfigMap, which any holder of `get configmaps` can read. Empty disables the variable. |
+| `tracing.headersSecret.key` | `"otlp-headers"` | Key inside that Secret. The value uses OTLP header syntax: comma-separated `key=value` pairs, such as `api-key=abc,x-tenant=acme`. |
+
+Rotating the header Secret does not restart the pods — the `checksum/config` annotation does not cover it. Roll the Deployment yourself after a rotation.
+
+### Egress when a NetworkPolicy is rendered
+
+With `networkPolicy.native.enabled` or `networkPolicy.cilium.enabled`, egress is default-deny and spans are dropped with no error anywhere. The chart cannot derive the rule, because a DNS name does not reveal the collector's pod labels. Add one for your collector:
+
+```yaml
+networkPolicy:
+  native:
+    extraEgress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: observability
+        ports:
+          - port: 4317
+            protocol: TCP
+  cilium:
+    extraEgress:
+      - toEndpoints:
+          - matchLabels:
+              io.kubernetes.pod.namespace: observability
+        toPorts:
+          - ports:
+              - port: "4317"
+                protocol: TCP
+```
+
+### Collector as a sidecar
+
+With the OpenTelemetry Operator installed, inject a sidecar and point the chart at loopback — no chart-side collector configuration is involved:
+
+```yaml
+podAnnotations:
+  sidecar.opentelemetry.io/inject: "true"
+tracing:
+  enabled: true
+  endpoint: localhost:4317
+```
+
 ## Helm tests
 
 The `helm test` hook Pods. See [Rendered Resources]({{< relref "resources" >}}) for what each one asserts.

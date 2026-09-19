@@ -1,0 +1,284 @@
+suite: Optional Features - Tracing
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  # deployment.yaml includes secret.yaml for the endpoint-auth checksum annotation,
+  # so the suite has to load it even though no assertion targets it.
+  - secret.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # =========================================================================
+  # Default state
+  # =========================================================================
+  - it: should not render a tracing section by default
+    template: configmap.yaml
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "tracing:"
+
+  - it: should not set the OTLP headers env var by default
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+          any: true
+
+  # =========================================================================
+  # Two-line enable: everything else comes from the defaults
+  # =========================================================================
+  - it: should render the tracing section from enabled plus endpoint alone
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "tracing:"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'endpoint: "otel-collector.observability:4317"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'protocol: "grpc"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "insecure: true"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "sample_ratio: 1"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'timeout: "10s"'
+
+  # The server decodes this file onto its own defaults with KnownFields(true),
+  # so a key present with an empty value overwrites the default. An empty
+  # service_name would then fail the server's own validation at startup.
+  - it: should omit service_name and environment when they are empty
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "service_name:"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "environment:"
+
+  - it: should render service_name and environment when set
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.serviceName: "github-sts-eu"
+      tracing.environment: "prod"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'service_name: "github-sts-eu"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'environment: "prod"'
+
+  - it: should render non-default protocol, ratio and timeout
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4318"
+      tracing.protocol: "http"
+      tracing.insecure: false
+      tracing.sampleRatio: 0.25
+      tracing.timeout: "5s"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'protocol: "http"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "insecure: false"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "sample_ratio: 0.25"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'timeout: "5s"'
+
+  # 0 is a legitimate ratio, so it must survive a `default`-style pipeline.
+  - it: should keep a sample ratio of zero
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.sampleRatio: 0
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "sample_ratio: 0"
+
+  # =========================================================================
+  # Endpoint normalization
+  # =========================================================================
+  - it: should append the grpc default port when none is given
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'endpoint: "otel-collector.observability:4317"'
+
+  - it: should append the http default port when none is given
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability"
+      tracing.protocol: "http"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'endpoint: "otel-collector.observability:4318"'
+
+  - it: should leave an explicit port alone
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:9999"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'endpoint: "otel-collector.observability:9999"'
+
+  # =========================================================================
+  # OTLP collector credentials
+  # =========================================================================
+  - it: should pass collector headers through the environment, not the ConfigMap
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.headersSecret.name: "otlp-collector-headers"
+      tracing.headersSecret.key: "otlp-headers"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+            valueFrom:
+              secretKeyRef:
+                name: "otlp-collector-headers"
+                key: "otlp-headers"
+
+  - it: should never render collector headers into the ConfigMap
+    template: configmap.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.headersSecret.name: "otlp-collector-headers"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^\\s*headers:"
+
+  - it: should not set the headers env var when tracing is off
+    template: deployment.yaml
+    set:
+      tracing.headersSecret.name: "otlp-collector-headers"
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OTEL_EXPORTER_OTLP_HEADERS
+          any: true
+
+  # =========================================================================
+  # Validation — each of these is a silent runtime failure without the guard.
+  # Pinned to deployment.yaml, as the TLS suite does: the validate include sits
+  # at the top of both templates and Helm attributes the render error to
+  # whichever it reaches first.
+  # =========================================================================
+  - it: should fail when enabled without an endpoint
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "tracing.enabled requires tracing.endpoint"
+
+  - it: should fail on an endpoint carrying a scheme
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "http://otel-collector.observability:4317"
+    asserts:
+      - failedTemplate:
+          errorPattern: "must be host:port with no scheme"
+
+  - it: should fail on an unsupported protocol
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.protocol: "kafka"
+    asserts:
+      - failedTemplate:
+          errorPattern: "tracing.protocol must be grpc or http"
+
+  - it: should fail on a sample ratio above one
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.sampleRatio: 1.5
+    asserts:
+      - failedTemplate:
+          errorPattern: "tracing.sampleRatio must be between 0 and 1"
+
+  - it: should fail on a negative sample ratio
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.sampleRatio: -0.1
+    asserts:
+      - failedTemplate:
+          errorPattern: "tracing.sampleRatio must be between 0 and 1"
+
+  - it: should fail on an empty timeout
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.timeout: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "tracing.timeout must be a positive Go duration string"
+
+  - it: should fail when the headers Secret has no key
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+      tracing.headersSecret.name: "otlp-collector-headers"
+      tracing.headersSecret.key: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "tracing.headersSecret.name is set but tracing.headersSecret.key is empty"
+
+  # The pod must roll when the tracing config changes, or an enable does
+  # nothing until something else happens to restart it.
+  - it: should change the config checksum when tracing is enabled
+    template: deployment.yaml
+    set:
+      tracing.enabled: true
+      tracing.endpoint: "otel-collector.observability:4317"
+    asserts:
+      - exists:
+          path: spec.template.metadata.annotations["checksum/config"]

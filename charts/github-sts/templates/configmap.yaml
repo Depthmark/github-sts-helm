@@ -1,5 +1,6 @@
 {{- include "github-sts.validateTls" . -}}
 {{- include "github-sts.validateApps" . -}}
+{{- include "github-sts.validateTracing" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -124,6 +125,28 @@ data:
       rate_limit_poll_interval: {{ .Values.metrics.rateLimitPoll.interval | default "60s" | quote }}
       reachability_probe_enabled: {{ .Values.metrics.reachabilityProbe.enabled }}
       reachability_probe_interval: {{ .Values.metrics.reachabilityProbe.interval | default "30s" | quote }}
+
+    {{- if .Values.tracing.enabled }}
+    {{- /* Rendered only when enabled. The server defaults tracing off, decodes
+    this file with KnownFields(true) onto those defaults, and treats a present
+    key as an override — so an omitted block is both the correct "off" state and
+    what keeps the config loadable on a pre-v0.1.1 image. For the same reason
+    service_name and environment are omitted rather than emitted empty: an empty
+    service_name would overwrite the server's default and fail validation. */}}
+    tracing:
+      enabled: true
+      endpoint: {{ include "github-sts.tracingEndpoint" . | quote }}
+      protocol: {{ .Values.tracing.protocol | default "grpc" | quote }}
+      insecure: {{ .Values.tracing.insecure }}
+      sample_ratio: {{ .Values.tracing.sampleRatio }}
+      timeout: {{ .Values.tracing.timeout | quote }}
+      {{- with .Values.tracing.serviceName }}
+      service_name: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.tracing.environment }}
+      environment: {{ . | quote }}
+      {{- end }}
+    {{- end }}
 
     rate_limit:
       enabled: {{ .Values.rateLimit.enabled | default false }}
