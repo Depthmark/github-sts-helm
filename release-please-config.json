@@ -11,7 +11,13 @@
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": true,
       "draft": false,
-      "prerelease": false
+      "prerelease": false,
+      "changelog-sections": [
+        { "type": "feat", "section": "✨ Features" },
+        { "type": "feature", "section": "✨ Features" },
+        { "type": "fix", "section": "🐛 Bug Fixes" },
+        { "type": "build", "section": "📦 Dependencies" }
+      ]
     }
   }
 }
