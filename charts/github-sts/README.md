@@ -353,6 +353,16 @@ jobs:
 | tls.reloadInterval | string | `""` | Certificate hot-reload poll interval (Go duration string, e.g. `"1h"`). Empty or `"0"` disables it. Kubernetes updates a mounted Secret in place on renewal, so without polling a cert-manager rotation only takes effect at the next pod restart. Set this to something well under the renewal window (cert-manager renews at 2/3 of lifetime by default) for rotation without a rollout. |
 | tolerations | list | `[]` | Tolerations |
 | topologySpreadConstraints | list | `[]` | Topology spread constraints |
+| tracing.enabled | bool | `false` | Export OTLP traces to `tracing.endpoint`. When false the server installs a no-op tracer, so instrumentation costs effectively nothing. |
+| tracing.endpoint | string | `""` | Collector address as bare `host:port` — no scheme. The server passes this to the OTLP exporter's `WithEndpoint`, which does not parse URLs, so `http://collector:4317` fails at export time rather than at startup; the chart rejects it during rendering instead. The protocol default port (4317 for grpc, 4318 for http) is appended when you omit one. Use `localhost:4317` for a collector running as a sidecar. Required when `tracing.enabled` is true. An IPv6 literal must carry its own brackets and port, e.g. `[::1]:4317`. |
+| tracing.environment | string | `""` | `deployment.environment` resource attribute (e.g. `staging`, `prod`). Omitted from the config when empty. |
+| tracing.headersSecret.key | string | `"otlp-headers"` | Key inside `headersSecret.name`. The value uses OTLP header syntax: comma-separated `key=value` pairs, e.g. `api-key=abc,x-tenant=acme`. |
+| tracing.headersSecret.name | string | `""` | Existing Secret holding the header string. Empty disables the environment variable entirely. |
+| tracing.insecure | bool | `true` | Export over plaintext. Defaults to true because the deployment this is built for is a hop to an in-cluster collector on the pod network, where there is no certificate to verify and TLS would only fail the handshake. Set to false when exporting straight to a vendor endpoint over the internet, and pair it with `tracing.headersSecret` for the API key. |
+| tracing.protocol | string | `"grpc"` | OTLP transport: `grpc` (default) or `http`. |
+| tracing.sampleRatio | float | `1` | Head sampling ratio between 0 and 1, applied `ParentBased` so an inbound sampling decision is respected. Keep this at 1.0 and tail-sample in the Collector instead: the exchange result is not known when a head sampler runs, so sampling down here throws away denials and failovers at random — exactly the traces worth keeping for a security broker. |
+| tracing.serviceName | string | `""` | `service.name` resource attribute. Empty uses the server's own default, `github-sts`. Override it when two releases export to the same tracing backend and need to be told apart; leaving it alone keeps the value that shipped dashboards and alerts key on. |
+| tracing.timeout | string | `"10s"` | Per-export timeout (Go duration string). Note that this always wins over `OTEL_EXPORTER_OTLP_TIMEOUT`, which the server never consults. |
 <!-- values:end -->
 
 ## Ingress & Routing

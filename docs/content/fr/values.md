@@ -416,6 +416,81 @@ L'alternative au ServiceMonitor : collecte directement auprès des pods, ce qu'i
 
 Le Prometheus Operator résout `bearerTokenSecret` dans le namespace qui contient le ServiceMonitor ou le PodMonitor. Si `serviceMonitor.namespace` ou `podMonitor.namespace` diffère du namespace de la release, dupliquez le Secret du jeton dans le namespace du moniteur. Conservez le nom et la clé générés, ou réglez `bearerTokenSecret` sur le `name` et la `key` du Secret dupliqué.
 
+## Traçage
+
+Export de traces OTLP. **Aucune version publiée du serveur n'émet encore de spans.** La 0.1.1 que fixe l'`appVersion` de ce chart initialise l'exportateur OTLP et installe la propagation W3C, mais n'enregistre aucune instrumentation HTTP : activer le traçage produit une configuration valide qui n'exporte rien du tout. Le handler `otelhttp` décrit ci-dessous se trouve sur la branche principale du serveur, non publiée — considérez le reste de cette section comme une description anticipée tant que l'`appVersion` n'a pas basculé sur une version qui l'embarque. Le chart omet entièrement la section `tracing:` du fichier de configuration généré lorsque le traçage est désactivé : épingler un `image.tag` plus ancien reste donc sans risque.
+
+La version instrumentée émet un span racine par requête, ouvert par le handler `otelhttp` placé le plus à l'extérieur de la chaîne de middlewares. Ce span est nommé d'après la route — `POST /sts/exchange`, jamais le chemin brut, car un chemin contient des noms de dépôts et rendrait la cardinalité des noms de spans illimitée — et porte `http.route` ainsi qu'une trentaine d'attributs `sts.*` et `github.*` : application et instance, scope, identité, résultat, émetteur et sujet OIDC, dépôts source et cible avec leurs propriétaires et identifiants, la chaîne des quatre jeux de permissions (installation, politique, demandées, accordées), la provenance de la politique, la décision de bundle, l'adresse du client et son user agent. Ils sont construits depuis le même événement d'audit que la ligne d'audit, au point unique par lequel passent toutes les sorties du handler : un span et son enregistrement d'audit ne peuvent donc pas décrire le même échange différemment.
+
+Un refus de politique laisse le statut du span à `Unset` plutôt qu'à `Error`. Un refus, c'est un broker qui fait son travail ; le marquer `Error` ferait suivre aux taux d'erreur dérivés des spans la fréquence à laquelle la politique de confiance s'applique — la décision d'autorisation se lit dans l'attribut `sts.result`, où chaque résultat reste distinguable. `Error` est réservé à une défaillance du cache, à une erreur GitHub en amont et aux conditions de bundle qui échouent en mode fermé avec un 503.
+
+Les chemins de sonde et de collecte — `/health`, `/ready`, `/healthz`, `/readyz`, `/metrics` — sont filtrés et ne produisent aucun span : une sonde kubelet déclenchée chaque seconde ne peut donc pas noyer les échanges réels dans votre backend. Un `traceparent` entrant est respecté au lieu d'être remplacé par une nouvelle racine : un échange rejoint ainsi la trace du workflow appelant. Les métriques HTTP OTel qu'`otelhttp` émettrait sinon sont désactivées, pour que rien n'apparaisse à côté des métriques `githubsts_` du chart.
+
+**Il n'y a pas encore de spans enfants par étape.** Un span par requête signifie qu'un échange lent apparaît comme un span lent, avec tout son contexte d'autorisation, mais que la latence n'est pas décomposée entre la validation OIDC, la réservation du JTI, le chargement et l'évaluation de la politique, les bundles Rego et l'émission du jeton GitHub. Cette décomposition est conçue et arrivera dans une version ultérieure du serveur.
+
+Ce sont des diagnostics échantillonnés ; le journal d'audit reste la source de vérité des décisions d'autorisation. L'élargissement de `trace_id` à 32 caractères hexadécimaux est indépendant de ce réglage : il est arrivé avec la v0.1.1 et s'applique que le traçage soit actif ou non.
+
+L'activation de l'export tient en deux valeurs :
+
+```yaml
+tracing:
+  enabled: true
+  endpoint: otel-collector.observability:4317
+```
+
+| Valeur | Défaut | Effet |
+|---|---|---|
+| `tracing.enabled` | `false` | Exporte les traces OTLP. À false, le serveur installe un traceur no-op : l'instrumentation ne coûte pratiquement rien. |
+| `tracing.endpoint` | `""` | Adresse du collecteur sous la forme `host:port`, sans schéma. Obligatoire lorsque le traçage est activé. Le chart ajoute le port par défaut du protocole (4317 grpc, 4318 http) si vous l'omettez, et rejette une URL au rendu : le serveur transmet cette valeur à `WithEndpoint` de l'exportateur OTLP, qui attend une adresse, si bien qu'un schéma échouerait au moment de l'export, avec pour seul symptôme un backend de traces vide. Utilisez `localhost:4317` pour un collecteur en sidecar, et des crochets pour une adresse IPv6 (`[::1]:4317`). |
+| `tracing.protocol` | `"grpc"` | Transport OTLP, `grpc` ou `http`. |
+| `tracing.insecure` | `true` | Exporte en clair. À true par défaut car le saut visé est celui vers un collecteur interne au cluster, sur le réseau des pods, où il n'y a aucun certificat à vérifier. Passez à false pour exporter directement vers un endpoint fournisseur sur Internet. |
+| `tracing.sampleRatio` | `1.0` | Taux d'échantillonnage en tête, appliqué en `ParentBased` afin de respecter une décision d'échantillonnage entrante. Gardez `1.0` et échantillonnez en queue dans le Collector : le résultat de l'échange est inconnu au moment où l'échantillonneur de tête s'exécute, donc échantillonner ici écarte au hasard les refus et les basculements — les traces qui méritent le plus d'être conservées. |
+| `tracing.timeout` | `"10s"` | Délai par export. Il l'emporte toujours sur `OTEL_EXPORTER_OTLP_TIMEOUT`, que le serveur ne consulte jamais. |
+| `tracing.serviceName` | `""` | Attribut de ressource `service.name`. Vide utilise la valeur par défaut du serveur, `github-sts`. À définir lorsque deux releases exportent vers le même backend et doivent être distinguées. |
+| `tracing.environment` | `""` | Attribut de ressource `deployment.environment`. Omis de la configuration lorsqu'il est vide. |
+| `tracing.headersSecret.name` | `""` | Secret existant contenant les en-têtes d'authentification d'un collecteur qui les exige. Transmis via la variable d'environnement `OTEL_EXPORTER_OTLP_HEADERS` plutôt qu'écrit dans la ConfigMap, que peut lire tout détenteur de `get configmaps`. Vide désactive la variable. |
+| `tracing.headersSecret.key` | `"otlp-headers"` | Clé dans ce Secret. La valeur suit la syntaxe des en-têtes OTLP : des paires `clé=valeur` séparées par des virgules, par exemple `api-key=abc,x-tenant=acme`. |
+
+Faire tourner le Secret d'en-têtes ne redémarre pas les pods : l'annotation `checksum/config` ne le couvre pas. Relancez le Deployment vous-même après une rotation.
+
+### Sortie réseau lorsqu'une NetworkPolicy est générée
+
+Avec `networkPolicy.native.enabled` ou `networkPolicy.cilium.enabled`, la sortie est refusée par défaut et les spans sont perdus sans erreur nulle part. Le chart ne peut pas déduire la règle : un nom DNS ne révèle pas les labels des pods du collecteur. Ajoutez-la pour le vôtre :
+
+```yaml
+networkPolicy:
+  native:
+    extraEgress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: observability
+        ports:
+          - port: 4317
+            protocol: TCP
+  cilium:
+    extraEgress:
+      - toEndpoints:
+          - matchLabels:
+              io.kubernetes.pod.namespace: observability
+        toPorts:
+          - ports:
+              - port: "4317"
+                protocol: TCP
+```
+
+### Collecteur en sidecar
+
+Avec l'OpenTelemetry Operator installé, injectez un sidecar et pointez le chart vers la boucle locale — aucune configuration de collecteur côté chart n'intervient :
+
+```yaml
+podAnnotations:
+  sidecar.opentelemetry.io/inject: "true"
+tracing:
+  enabled: true
+  endpoint: localhost:4317
+```
+
 ## Tests Helm
 
 Les pods de hook `helm test`. Voir [Ressources générées]({{< relref "resources" >}}) pour ce que chacun vérifie.

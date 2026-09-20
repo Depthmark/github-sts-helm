@@ -71,6 +71,19 @@ spec:
                   key: {{ .Values.endpointAuth.metricsKey }}
                   optional: true
             {{- end }}
+            {{- if and .Values.tracing.enabled .Values.tracing.headersSecret.name }}
+            {{- /* OTLP collector credentials travel through the environment,
+            not the ConfigMap: `tracing.headers` in the rendered config would be
+            readable by any holder of `get configmaps`. The server leaves its own
+            headers field unset, so the SDK picks this variable up. Changing the
+            Secret does not roll the pods — the config checksum annotation does
+            not cover it — so restart the Deployment after rotating the key. */}}
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.tracing.headersSecret.name }}
+                  key: {{ .Values.tracing.headersSecret.key }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
