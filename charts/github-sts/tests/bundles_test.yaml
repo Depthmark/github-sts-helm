@@ -1,0 +1,248 @@
+suite: Bundles
+templates:
+  - configmap.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # bundle_enforcement
+  #
+  # The server refuses to start without a valid value, so the chart always
+  # renders this key, independently of whether any bundle is configured.
+  # -------------------------------------------------------------------------
+  - it: should render bundle_enforcement as optional by default
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'bundle_enforcement: "optional"'
+
+  - it: should render an overridden bundle_enforcement
+    set:
+      bundleEnforcement: "required"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'bundle_enforcement: "required"'
+
+  # -------------------------------------------------------------------------
+  # The empty case
+  #
+  # `bundles` is guarded by `{{- with }}`, so an empty list must produce no
+  # `bundles:` key at all rather than `bundles: []`.
+  # -------------------------------------------------------------------------
+  - it: should omit the bundles key entirely when no bundle is configured
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "bundles:"
+
+  # -------------------------------------------------------------------------
+  # Pass-through fidelity
+  #
+  # Entries reach the server's top-level `bundles:` without validation or
+  # renaming. Every field an operator can set has to survive verbatim.
+  # -------------------------------------------------------------------------
+  - it: should pass every bundle field through unchanged
+    set:
+      bundles:
+        - name: enterprise-baseline
+          apps: []
+          ref: "oci://ghcr.io/example/policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+          expected_policy_revision: "42"
+          poll_interval: "5m"
+          max_staleness: "10m"
+          fail_mode: "closed"
+          allow_mutable_ref: false
+          cosign:
+            certificate_identity_regexp: "^https://github\\.com/Depthmark/.+$"
+            certificate_oidc_issuer: "https://token.actions.githubusercontent.com"
+            public_key_ref: "/etc/github-sts/cosign/key.pub"
+            skip_verification: false
+          registry:
+            auth:
+              mode: "basic"
+              username: "robot"
+              password_file: "/etc/github-sts/registry/password"
+              password_env: "REGISTRY_PASSWORD"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "name: enterprise-baseline"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "apps: \\[\\]"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "ref: oci://ghcr.io/example/policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'expected_policy_revision: "42"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "poll_interval: 5m"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "max_staleness: 10m"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "fail_mode: closed"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allow_mutable_ref: false"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "certificate_oidc_issuer: https://token.actions.githubusercontent.com"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "public_key_ref: /etc/github-sts/cosign/key.pub"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "skip_verification: false"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "mode: basic"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "username: robot"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "password_file: /etc/github-sts/registry/password"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "password_env: REGISTRY_PASSWORD"
+
+  # -------------------------------------------------------------------------
+  # No renaming
+  #
+  # The chart must not camelCase server field names on the way through. A
+  # renamed key would be rejected by the server's known-fields decoder.
+  # -------------------------------------------------------------------------
+  - it: should not camelCase server field names
+    set:
+      bundles:
+        - name: enterprise-baseline
+          expected_policy_revision: "42"
+          poll_interval: "5m"
+          max_staleness: "10m"
+          fail_mode: "closed"
+          allow_mutable_ref: false
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "expectedPolicyRevision"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "pollInterval"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "maxStaleness"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "failMode"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "allowMutableRef"
+
+  # -------------------------------------------------------------------------
+  # Types
+  #
+  # The server decodes these into typed Go fields. A bool rendered as a
+  # quoted string, or a quoted revision rendered as an integer, fails to
+  # decode.
+  # -------------------------------------------------------------------------
+  - it: should render booleans as booleans, not quoted strings
+    set:
+      bundles:
+        - name: enterprise-baseline
+          allow_mutable_ref: true
+          cosign:
+            skip_verification: true
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "allow_mutable_ref: true"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'allow_mutable_ref: "true"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "skip_verification: true"
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: 'skip_verification: "true"'
+
+  - it: should keep a quoted policy revision a string
+    set:
+      bundles:
+        - name: enterprise-baseline
+          expected_policy_revision: "42"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'expected_policy_revision: "42"'
+
+  # -------------------------------------------------------------------------
+  # A cosign identity regexp travels as a plain scalar, so its backslashes
+  # must reach the server unescaped and unquoted.
+  # -------------------------------------------------------------------------
+  - it: should preserve a cosign identity regexp verbatim
+    set:
+      bundles:
+        - name: enterprise-baseline
+          cosign:
+            certificate_identity_regexp: "^https://github\\.com/Depthmark/.+$"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'certificate_identity_regexp: \^https://github\\\.com/Depthmark/\.\+\$'
+
+  # -------------------------------------------------------------------------
+  # List order
+  #
+  # toYaml sorts the keys inside an entry, but the order of the entries
+  # themselves is the operator's and decides evaluation order.
+  # -------------------------------------------------------------------------
+  - it: should preserve the order of bundle entries
+    set:
+      bundles:
+        - name: alpha-first
+          ref: "oci://ghcr.io/example/alpha:v1"
+        - name: beta-second
+          ref: "oci://ghcr.io/example/beta:v1"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?s)name: alpha-first.*name: beta-second"
+
+  # -------------------------------------------------------------------------
+  # Indentation
+  #
+  # `nindent 6` under a user-supplied nested map is where a rendering bug
+  # would show up: entries have to sit under `bundles:`, not beside it.
+  # -------------------------------------------------------------------------
+  # `registry` sorts after `name`, so it renders as a nested block rather than
+  # inline after the list dash. That is the shape that exercises the indent.
+  - it: should nest bundle entries under the bundles key
+    set:
+      bundles:
+        - name: enterprise-baseline
+          registry:
+            auth:
+              mode: "basic"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^bundles:$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^  - name: enterprise-baseline$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^    registry:$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^      auth:$"
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "(?m)^        mode: basic$"

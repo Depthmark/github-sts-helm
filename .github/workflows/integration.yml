@@ -631,3 +631,197 @@ jobs:
           echo "::group::All events"
           kubectl -n "$NS" get events --sort-by=.lastTimestamp
           echo "::endgroup::"
+
+  kind-integration-bundles:
+    name: Kind Integration Test (Policy Bundles)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      NS: github-sts-bundle-test
+    steps:
+      - name: Checkout helm chart
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Checkout github-sts source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Depthmark/github-sts
+          path: github-sts-src
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Create Kind cluster
+        uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          cluster_name: github-sts-bundle-test
+
+      - name: Read appVersion from Chart.yaml
+        id: chart
+        run: |
+          APP_VERSION=$(grep '^appVersion:' charts/github-sts/Chart.yaml | awk '{print $2}')
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and load image into Kind
+        run: |
+          docker build -t ghcr.io/depthmark/github-sts:${{ steps.chart.outputs.app_version }} github-sts-src/
+          kind load docker-image ghcr.io/depthmark/github-sts:${{ steps.chart.outputs.app_version }} --name github-sts-bundle-test
+
+      - name: Build a throwaway policy bundle
+        run: |
+          # An OPA bundle is a plain tar.gz of Rego; the server compiles it at
+          # load time, so no opa binary and no registry are involved. Nothing
+          # is published: the artifact dies with the cluster.
+          mkdir -p /tmp/bundle-src/policies/org
+          cat > /tmp/bundle-src/policies/org/00_defaults.rego <<'REGO'
+          package sts.org
+
+          import rego.v1
+
+          default decision := {"allow": false, "reasons": ["default deny"]}
+          REGO
+          tar czf /tmp/bundle.tar.gz -C /tmp/bundle-src .
+
+      - name: Create namespace, app Secret and the bundle ConfigMap
+        run: |
+          openssl genrsa 2048 > /tmp/default.pem
+          kubectl create namespace "$NS"
+          kubectl create secret generic github-app-default-credentials --namespace "$NS" \
+            --from-file=github-app-private-key=/tmp/default.pem
+          # Stored as binaryData; the kubelet writes the decoded tarball to
+          # the mount path.
+          kubectl create configmap sts-test-bundle --namespace "$NS" \
+            --from-file=bundle.tar.gz=/tmp/bundle.tar.gz
+
+      - name: Install chart with a file:// bundle
+        run: |
+          # ci/bundles-values.yaml is render-only: its oci:// refs are never
+          # fetched by helm template, but they would be fetched here. This job
+          # needs a ref the pod can actually resolve, so it uses file:// with
+          # the tarball mounted through the chart's own extraVolumes hatch.
+          cat > /tmp/bundle-values.yaml <<'YAML'
+          github:
+            apps:
+              default:
+                appId: 12345
+                existingSecret: "github-app-default-credentials"
+          bundleEnforcement: "optional"
+          bundles:
+            - name: test-baseline
+              apps: []
+              ref: "file:///bundles/bundle.tar.gz"
+              poll_interval: "5m"
+              max_staleness: "10m"
+              fail_mode: "open"
+          extraVolumes:
+            - name: test-bundle
+              configMap:
+                name: sts-test-bundle
+          extraVolumeMounts:
+            - name: test-bundle
+              mountPath: /bundles
+              readOnly: true
+          YAML
+
+          # Reaching Ready is itself an assertion: the server pulls, verifies
+          # and compiles the bundle synchronously during startup, and a
+          # failure there aborts server creation rather than degrading to
+          # YAML-only.
+          helm install github-sts charts/github-sts \
+            --namespace "$NS" \
+            --values /tmp/bundle-values.yaml \
+            --set image.pullPolicy=Never \
+            --wait \
+            --timeout 120s
+
+      - name: Verify deployment is running
+        run: |
+          kubectl -n "$NS" rollout status deployment/github-sts --timeout=60s
+
+      - name: Verify the bundle reached the server configuration
+        run: |
+          CONFIG=$(kubectl -n "$NS" get configmap github-sts-config -o jsonpath='{.data.config\.yaml}')
+          echo "$CONFIG"
+          echo "$CONFIG" | grep -q 'bundle_enforcement: "optional"'
+          echo "$CONFIG" | grep -q 'name: test-baseline'
+          echo "$CONFIG" | grep -q 'ref: file:///bundles/bundle.tar.gz'
+          echo "$CONFIG" | grep -q 'fail_mode: open'
+          echo "Bundle ConfigMap validation passed"
+
+      - name: Verify /health reports the loaded bundle
+        run: |
+          # The server only reports a digest once Init() pulled and compiled
+          # the tarball, so this is the end-to-end check that the chart's
+          # rendering and the server's expectations still agree.
+          kubectl -n "$NS" port-forward svc/github-sts 18080:8080 &
+          PF_PID=$!
+          trap 'kill "$PF_PID" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 15); do
+            curl -fsS http://127.0.0.1:18080/health -o /tmp/health.json && break
+            sleep 2
+          done
+          cat /tmp/health.json
+          grep -q '"bundle_enforcement":"optional"' /tmp/health.json
+          grep -q '"name":"test-baseline"' /tmp/health.json
+          grep -q '"enabled":true' /tmp/health.json
+          grep -q '"digest":"sha256:' /tmp/health.json
+          echo "Bundle health reporting verified"
+
+      - name: Verify an unresolvable bundle stops the pod
+        run: |
+          # Without this case the job would pass even if the chart dropped the
+          # bundles block entirely, because a server with no bundles starts
+          # perfectly well. A ref that cannot resolve has to be fatal.
+          helm uninstall github-sts --namespace "$NS" --wait
+
+          sed 's|file:///bundles/bundle.tar.gz|file:///bundles/does-not-exist.tar.gz|' \
+            /tmp/bundle-values.yaml > /tmp/bundle-values-bad.yaml
+
+          if helm install github-sts charts/github-sts \
+            --namespace "$NS" \
+            --values /tmp/bundle-values-bad.yaml \
+            --set image.pullPolicy=Never \
+            --wait \
+            --timeout 90s; then
+            echo "ERROR: the release became ready with an unresolvable bundle ref"
+            exit 1
+          fi
+
+          LOGS=$(kubectl -n "$NS" logs -l app.kubernetes.io/name=github-sts \
+            --tail=200 --prefix --all-containers 2>&1 || true)
+          echo "$LOGS"
+          echo "$LOGS" | grep -q 'initializing bundle manager'
+          echo "Unresolvable bundle correctly refused at startup"
+
+      - name: Collect debug info on failure
+        if: failure()
+        env:
+          SELECTOR: app.kubernetes.io/name=github-sts
+        run: |
+          echo "::group::Pod status"
+          kubectl -n "$NS" get pods -o wide
+          echo "::endgroup::"
+
+          echo "::group::Logs (current container)"
+          kubectl -n "$NS" logs -l "$SELECTOR" --tail=100 --prefix --all-containers 2>&1
+          echo "::endgroup::"
+
+          echo "::group::Logs (previous container)"
+          kubectl -n "$NS" logs -l "$SELECTOR" --previous --tail=100 --prefix 2>&1
+          echo "::endgroup::"
+
+          echo "::group::Rendered server configuration"
+          kubectl -n "$NS" get configmap github-sts-config -o jsonpath='{.data.config\.yaml}'
+          echo "::endgroup::"
+
+          echo "::group::Pod describe"
+          kubectl -n "$NS" describe pods -l "$SELECTOR"
+          echo "::endgroup::"
+
+          echo "::group::Warning events"
+          kubectl -n "$NS" get events --field-selector type=Warning --sort-by=.lastTimestamp
+          echo "::endgroup::"

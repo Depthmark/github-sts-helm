@@ -1,0 +1,46 @@
+# CI test values: signed Rego/OPA policy bundles.
+#
+# `bundles` entries are passed through to the server's top-level `bundles:`
+# config without validation or renaming, so this file uses the server's
+# snake_case field names. It exercises the cosign and registry.auth blocks,
+# which nothing else under ci/ renders.
+#
+# `bundleEnforcement` stays `optional`: `required` adds startup preconditions
+# (digest-pinned ref, no mutable ref, no skip_verification, fail_mode closed
+# for a catch-all entry) that belong in their own values file.
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: "github-app-default-credentials"
+
+bundleEnforcement: "optional"
+
+bundles:
+  - name: enterprise-baseline
+    apps: []
+    ref: "oci://ghcr.io/example/github-sts-policy@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    expected_policy_revision: "42"
+    poll_interval: "5m"
+    max_staleness: "10m"
+    fail_mode: "closed"
+    allow_mutable_ref: false
+    cosign:
+      certificate_identity_regexp: "^https://github\\.com/Depthmark/.+$"
+      certificate_oidc_issuer: "https://token.actions.githubusercontent.com"
+      skip_verification: false
+  - name: team-overlay
+    apps:
+      - default
+    ref: "oci://ghcr.io/example/github-sts-team-policy:v3"
+    poll_interval: "15m"
+    max_staleness: "30m"
+    fail_mode: "open"
+    allow_mutable_ref: true
+    cosign:
+      public_key_ref: "/etc/github-sts/cosign/team.pub"
+    registry:
+      auth:
+        mode: "basic"
+        username: "robot"
+        password_file: "/etc/github-sts/registry/password"
