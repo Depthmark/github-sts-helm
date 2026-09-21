@@ -123,7 +123,7 @@ github:
 
 Three things to know before running it.
 
-The server image has to support pools. An older image ignores `instances:` and then has no credentials for that app, which turns every exchange for it into a failure. Move `image.tag` or `image.digest` first, verify, then change the values.
+The server image has to support pools, meaning github-sts 0.1.1 or later, which this chart's `appVersion` already pins. An older image rejects `instances:` and the pod CrashLoopBackOffs with `field instances not found in type config.AppConfig`, so it never serves an exchange at all. Only an `image.tag` or `image.digest` override below the `appVersion` reaches that state. Move it first, verify, then change the values.
 
 Registering a second GitHub App is not enough on its own — install it on the same repositories, with the same permissions, as the one already in use. The server treats pool members as interchangeable and does not verify that they are.
 

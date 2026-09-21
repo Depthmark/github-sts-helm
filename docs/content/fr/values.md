@@ -57,7 +57,7 @@ github:
         maxAttempts: 2
 ```
 
-Les apps en pool exigent une image serveur qui comprend `apps.<name>.instances`. Une image plus ancienne analyse la clé sans erreur puis démarre sans identifiants pour cette app : vérifiez l'image avant de convertir une entrée.
+Les apps en pool exigent une image serveur qui comprend `apps.<name>.instances`, soit github-sts 0.1.1 ou ultérieure, ce que l'`appVersion` de ce chart épingle déjà. Une image plus ancienne rejette la clé et le pod redémarre en boucle avec `field instances not found in type config.AppConfig` : vérifiez `image.tag` avant de convertir une entrée.
 
 <!-- values:pause -->
 

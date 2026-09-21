@@ -112,7 +112,7 @@ github:
 
 Register every instance as a separate GitHub App and install each one with the same permissions and repository access. The server picks between them freely and does not check that they match, so an instance installed on fewer repositories produces `422` responses on the share of requests it happens to serve.
 
-This form needs a server image that understands `apps.<name>.instances`. An older image ignores the key and starts with no credentials for that app. Check [Compatibility]({{< relref "/integrations/compatibility" >}}) before converting an entry, and see [Configuration]({{< relref "/reference/configuration" >}}) for the selection and failover rules, including `rotation`.
+This form needs a server image that understands `apps.<name>.instances`, meaning github-sts 0.1.1 or later, which is what this chart's `appVersion` pins. An older image rejects the key outright and the pod CrashLoopBackOffs with `field instances not found in type config.AppConfig`. Check [Compatibility]({{< relref "/integrations/compatibility" >}}) before converting an entry, and see [Configuration]({{< relref "/reference/configuration" >}}) for the selection and failover rules, including `rotation`.
 
 ### Name the key inside the Secret
 

@@ -124,7 +124,7 @@ github:
 
 Trois points à connaître avant de l'appliquer.
 
-L'image serveur doit gérer les pools. Une image plus ancienne ignore `instances:` et se retrouve alors sans identifiants pour cette app, ce qui fait échouer tous ses échanges. Déplacez `image.tag` ou `image.digest` d'abord, vérifiez, puis changez les valeurs.
+L'image serveur doit gérer les pools, soit github-sts 0.1.1 ou ultérieure, ce que l'`appVersion` de ce chart épingle déjà. Une image plus ancienne rejette `instances:` et le pod redémarre en boucle avec `field instances not found in type config.AppConfig`, si bien qu'elle ne sert aucun échange. Seule une surcharge d'`image.tag` ou d'`image.digest` sous l'`appVersion` atteint cet état. Déplacez-la d'abord, vérifiez, puis changez les valeurs.
 
 Enregistrer une deuxième GitHub App ne suffit pas : installez-la sur les mêmes dépôts, avec les mêmes permissions, que celle déjà en service. Le serveur considère les membres d'un pool comme interchangeables et ne vérifie pas qu'ils le sont.
 
