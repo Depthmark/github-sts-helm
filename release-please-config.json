@@ -12,6 +12,7 @@
       "bump-patch-for-minor-pre-major": true,
       "draft": false,
       "prerelease": false,
+      "release-as": "0.1.1",
       "changelog-sections": [
         { "type": "feat", "section": "✨ Features" },
         { "type": "feature", "section": "✨ Features" },
