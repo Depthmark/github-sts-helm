@@ -823,9 +823,12 @@ rateLimit:
 # across independent GitHub rate-limit buckets. The two forms are mutually
 # exclusive on one entry; the chart fails the render if both are set.
 #
-# Pooled apps require a server build with app-pool support. An older image
-# ignores `instances:` and then starts with no credentials for that app — check
-# the app version before switching an entry to the pooled form.
+# Pooled apps require a github-sts image that knows `instances:`, meaning 0.1.1
+# or later, which is what this chart's `appVersion` pins. An older image rejects
+# the key outright instead of falling back to the flat form. The config decoder
+# runs with known-fields checking, so the pod CrashLoopBackOffs with
+# `field instances not found in type config.AppConfig`. Only an `image.tag` or
+# `image.digest` override below the `appVersion` reaches that state.
 #
 # `policyResolution` decides which repository wins when both the requesting repo
 # and the organization policy repo hold a policy for an identity. It only means

@@ -85,7 +85,7 @@ github:
 
 `instances` and `appId` are mutually exclusive on one entry; the chart fails the render if both are set. Each instance's key is projected under `/etc/github-sts/apps/{app}/{appId}/{key}`, so instances may reuse a key name or share a Secret.
 
-Pool support is newer than the server release this chart's `appVersion` pins. An older image ignores `instances:` and then starts with no credentials for that app, so move `image.tag` or `image.digest` to a build with pool support first.
+Pool support needs github-sts 0.1.1 or later, which is what this chart's `appVersion` pins. An older image rejects `instances:` outright instead of falling back to the flat form. The config decoder runs with known-fields checking, so the pod CrashLoopBackOffs with `field instances not found in type config.AppConfig`. Only an `image.tag` or `image.digest` override below the `appVersion` reaches that state.
 
 Every instance in a pool must be installed with identical permissions and repository access. The server treats members as interchangeable and does not verify that they are, so a mismatched instance shows up as intermittent `422` responses. Alert on `githubsts_app_pool_exhausted_total`, which increments when every instance in a pool failed one request.
 

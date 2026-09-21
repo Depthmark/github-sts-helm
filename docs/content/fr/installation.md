@@ -113,7 +113,7 @@ github:
 
 Enregistrez chaque instance comme une GitHub App distincte et installez-les toutes avec les mêmes permissions et le même accès aux dépôts. Le serveur choisit librement entre elles et ne vérifie pas qu'elles correspondent : une instance installée sur moins de dépôts produit des réponses `422` sur la part des requêtes qu'elle sert.
 
-Cette forme exige une image serveur qui comprend `apps.<name>.instances`. Une image plus ancienne ignore la clé et démarre sans identifiants pour cette app. Consultez [Compatibilité]({{< relref "/integrations/compatibility" >}}) avant de convertir une entrée, et [Configuration]({{< relref "/reference/configuration" >}}) pour les règles de sélection et de bascule, y compris `rotation`.
+Cette forme exige une image serveur qui comprend `apps.<name>.instances`, soit github-sts 0.1.1 ou ultérieure, ce que l'`appVersion` de ce chart épingle déjà. Une image plus ancienne rejette la clé et le pod redémarre en boucle avec `field instances not found in type config.AppConfig`. Consultez [Compatibilité]({{< relref "/integrations/compatibility" >}}) avant de convertir une entrée, et [Configuration]({{< relref "/reference/configuration" >}}) pour les règles de sélection et de bascule, y compris `rotation`.
 
 ### Nommer la clé dans le Secret
 

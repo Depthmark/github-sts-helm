@@ -69,8 +69,10 @@ App pools are configured:
 {{- end }}
   Every instance in a pool must be installed with identical permissions and
   repository access. A mismatched instance surfaces only as intermittent 422s.
-  Requires a server image with app-pool support; an older image ignores
-  instances: and starts with no credentials for that app.
+  Requires a github-sts image that knows instances:, meaning 0.1.1 or later,
+  which is what this chart's appVersion pins. An older image rejects the key and
+  the pod CrashLoopBackOffs with "field instances not found in type
+  config.AppConfig". It does not fall back to the flat form.
   Alert on githubsts_app_pool_exhausted_total: it fires when every instance in
   a pool failed one request.
 {{- end }}

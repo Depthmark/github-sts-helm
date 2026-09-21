@@ -56,7 +56,7 @@ github:
         maxAttempts: 2
 ```
 
-Pooled apps need a server image that understands `apps.<name>.instances`. An older image parses the key leniently and then starts with no credentials for that app, so check the image before converting an entry.
+Pooled apps need a server image that understands `apps.<name>.instances`, meaning github-sts 0.1.1 or later, which is what this chart's `appVersion` pins. An older image rejects the key outright and the pod CrashLoopBackOffs with `field instances not found in type config.AppConfig`, so check `image.tag` before converting an entry.
 
 <!-- values:pause -->
 
