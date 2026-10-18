@@ -37,7 +37,7 @@ Each entry accepts the following fields:
 
 ### Pool several GitHub Apps behind one name
 
-An entry backed by `instances` spreads exchanges for that app name across several physical GitHub Apps, each with its own primary rate-limit budget. Callers keep sending the one logical name in `app=`; which instance served a request appears only in the `instance` metric label and in the audit log. [Configuration]({{< relref "/reference/configuration" >}}) documents how the server selects and fails over between them.
+An entry backed by `instances` spreads exchanges for that app name across several physical GitHub Apps, each with its own primary rate-limit budget. Callers keep sending the one logical name in `app=`; which instance served a request appears only in the `github_app_instance` metric label and in the audit log. [Configuration]({{< relref "/reference/configuration" >}}) documents how the server selects and fails over between them.
 
 ```yaml
 github:

@@ -127,7 +127,7 @@ The server image has to support pools, meaning github-sts 0.1.1 or later, which 
 
 Registering a second GitHub App is not enough on its own — install it on the same repositories, with the same permissions, as the one already in use. The server treats pool members as interchangeable and does not verify that they are.
 
-Metrics gain an `instance` label. Every GitHub App, rate-limit, and reachability series is now per-instance, including for apps you left as a single App, which counts as a pool of one. Dashboards and alerts that aggregate across those series need a `sum by (app)` or the equivalent before the upgrade, or they will start showing one series per instance. `githubsts_app_pool_exhausted_total` is the signal to alert on: it increments when every instance in a pool failed one request.
+Metrics gain a `github_app_instance` label. Every GitHub App, rate-limit, and reachability series is now per-instance, including for apps you left as a single App, which counts as a pool of one. Dashboards and alerts that aggregate across those series need a `sum by (github_app)` or the equivalent before the upgrade, or they will start showing one series per instance. `githubsts_app_pool_exhausted_total` is the signal to alert on: it increments when every instance in a pool failed one request.
 
 Keep the old App installed until the pool has served traffic. Rolling back is a `helm rollback`, which restores the previous entry and its mount, but only works if the App it names is still installed.
 

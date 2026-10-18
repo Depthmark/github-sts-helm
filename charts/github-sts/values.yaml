@@ -867,7 +867,8 @@ github:
   #     policyResolution: "org_first"
   #   # Pooled app: three physical GitHub Apps behind the name "checkout".
   #   # Callers still send app=checkout; which instance served the request
-  #   # shows up only in the `instance` metric label and the audit log.
+  #   # shows up only in the `github_app_instance` metric label and the audit
+  #   # log.
   #   checkout:
   #     orgPolicyRepo: ".github"
   #     policyResolution: "org_only"
