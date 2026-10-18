@@ -62,8 +62,9 @@ App pools are configured:
   - {{ $appName }}: {{ len $app.instances }} GitHub App instance(s), rotation
     strategy "{{ $strategy }}"
 {{- if eq $strategy "rate_limit_aware" }}
-    NOTE: rate_limit_aware is accepted but not yet implemented server-side; this
-    pool behaves like round_robin and the server logs a warning at startup.
+    A member whose installation is known to be below {{ (($app.rotation | default dict).minRemainingPct) | default 0 }}% remaining, or out
+    of requests, is tried after the others; each skip counts in
+    githubsts_app_pool_selection_total{outcome="skipped_rate_limited"}.
 {{- end }}
 {{- end }}
 {{- end }}
@@ -92,8 +93,6 @@ Prometheus PodMonitor is enabled. Metrics will be scraped from {{ .Values.podMon
 Tracing is enabled: exporting OTLP over {{ .Values.tracing.protocol | default "grpc" }} to
 {{ include "github-sts.tracingEndpoint" . }}{{ if .Values.tracing.insecure }} (plaintext){{ end }},
 head sample ratio {{ .Values.tracing.sampleRatio }}.
-  NOTE: the pinned server 0.1.1 carries the exporter but no instrumentation,
-  so it exports nothing yet. Spans need a release newer than 0.1.1.
   Confirm the exporter started:
     kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "github-sts.fullname" . }} | grep "tracing enabled"
   Probe and scrape paths are not traced, so drive one /sts/exchange before

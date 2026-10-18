@@ -239,8 +239,9 @@ jobs:
 | logging.suppressHealthLogs | bool | `true` | Suppress health/ready/metrics access logs |
 | metrics.authToken | string | `""` | DEPRECATED, removed in a future chart release. Use `endpointAuth.metricsToken`, which keeps the token out of the ConfigMap. Combining it with `endpointAuth.metricsToken` or `endpointAuth.existingSecret` is rejected at render time, because the deprecated value would otherwise be discarded without warning. |
 | metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
-| metrics.rateLimitPoll.enabled | bool | `true` | Enable periodic polling of GitHub rate limit API |
-| metrics.rateLimitPoll.interval | string | `"60s"` | Polling interval (Go duration string) |
+| metrics.rateLimitPoll.enabled | bool | `true` | Probe each pool member's installation rate limit bucket on a timer, with a conditional `GET /emojis` request. Feeds the `githubsts_github_rate_limit_*` gauges and the quota readings that `rotation.strategy: rate_limit_aware` routes on; with this off, those readings come only from github-sts's own GitHub calls. |
+| metrics.rateLimitPoll.forceCountedInterval | string | `""` | Longest a probe may answer from a cached `304` before it pays for a counted read again (Go duration string). A `304` carries no usable reading for an installation token, so this bounds how stale the quota view behind `rate_limit_aware` can get, at the cost of one spent request per instance each time it forces a read. `"0s"` makes every probe counted. Empty leaves the key out of the rendered config, so the server's own default (`5m`) applies and an image older than 0.1.2, which rejects the key, still starts. |
+| metrics.rateLimitPoll.interval | string | `"60s"` | Probe interval (Go duration string). Only the first probe per token spends a request; later ones are answered with a free `304 Not Modified`. |
 | metrics.reachabilityProbe.enabled | bool | `true` | Enable periodic GitHub API reachability probing |
 | metrics.reachabilityProbe.interval | string | `"30s"` | Probe interval (Go duration string) |
 | nameOverride | string | `""` | Override the chart name |

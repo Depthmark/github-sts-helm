@@ -522,3 +522,16 @@ mistake.
 {{- fail "tracing.headersSecret.name is set but tracing.headersSecret.key is empty — name the key holding the OTLP header string" -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+forceCountedInterval must be a quoted duration string. An unquoted `0` is a
+number, which the configmap's `with` would drop, silently leaving the server's
+5m instead of "every probe counted"; any other bare number renders without a
+unit and the server refuses to start on it.
+*/}}
+{{- define "github-sts.validateMetrics" -}}
+{{- $fc := .Values.metrics.rateLimitPoll.forceCountedInterval -}}
+{{- if and (not (kindIs "invalid" $fc)) (not (kindIs "string" $fc)) -}}
+{{- fail (printf "metrics.rateLimitPoll.forceCountedInterval must be a quoted Go duration string such as \"5m\" or \"0s\" (got %v)" $fc) -}}
+{{- end -}}
+{{- end }}

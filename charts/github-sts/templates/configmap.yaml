@@ -1,6 +1,7 @@
 {{- include "github-sts.validateTls" . -}}
 {{- include "github-sts.validateApps" . -}}
 {{- include "github-sts.validateTracing" . -}}
+{{- include "github-sts.validateMetrics" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -123,6 +124,11 @@ data:
       enabled: {{ .Values.metrics.enabled }}
       rate_limit_poll_enabled: {{ .Values.metrics.rateLimitPoll.enabled }}
       rate_limit_poll_interval: {{ .Values.metrics.rateLimitPoll.interval | default "60s" | quote }}
+      {{- /* Rendered only when set: an empty value keeps the server's default,
+      and an image older than 0.1.2 rejects the key outright. */}}
+      {{- with .Values.metrics.rateLimitPoll.forceCountedInterval }}
+      rate_limit_poll_force_counted_interval: {{ . | quote }}
+      {{- end }}
       reachability_probe_enabled: {{ .Values.metrics.reachabilityProbe.enabled }}
       reachability_probe_interval: {{ .Values.metrics.reachabilityProbe.interval | default "30s" | quote }}
 

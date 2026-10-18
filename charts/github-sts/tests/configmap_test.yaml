@@ -263,6 +263,35 @@ tests:
           path: data["config.yaml"]
           pattern: 'rate_limit_poll_interval: "120s"'
 
+  - it: should leave the forced counted interval to the server by default
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "rate_limit_poll_force_counted_interval"
+
+  - it: should render the forced counted interval when set
+    set:
+      metrics.rateLimitPoll.forceCountedInterval: "2m"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'rate_limit_poll_force_counted_interval: "2m"'
+
+  - it: should render a zero forced counted interval, which counts every probe
+    set:
+      metrics.rateLimitPoll.forceCountedInterval: "0s"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'rate_limit_poll_force_counted_interval: "0s"'
+
+  - it: should reject an unquoted number as the forced counted interval
+    set:
+      metrics.rateLimitPoll.forceCountedInterval: 0
+    asserts:
+      - failedTemplate:
+          errorPattern: "forceCountedInterval must be a quoted Go duration string"
+
   - it: should not include auth_token when empty
     asserts:
       - notMatchRegex:

@@ -73,8 +73,8 @@ And `rotation` accepts:
 
 | Field | Default | Effect |
 |---|---|---|
-| `strategy` | `round_robin` | `round_robin` or `rate_limit_aware`. `rate_limit_aware` is accepted by the server but not yet implemented: a pool set to it behaves like `round_robin` and the server logs a warning at startup. |
-| `minRemainingPct` | unset | `rate_limit_aware` only, in `[0, 100)`. No effect today, for the reason above. |
+| `strategy` | `round_robin` | `round_robin` or `rate_limit_aware`. With `rate_limit_aware`, each request moves to the back of the order any member whose installation for the requested organization is known to be below `minRemainingPct`, or out of requests; that member is still tried when every other one fails. Its readings come from the rate limit poller (`metrics.rateLimitPoll`) and from github-sts's own GitHub calls, so they can lag behind a fast drain, and failover on a live rate limit response stays the backstop. |
+| `minRemainingPct` | unset | `rate_limit_aware` only, in `[0, 100)`. Unset or `0` moves back only a member with no requests left. |
 | `maxAttempts` | unset | Bound on how many instances one request tries before failing. Left unset, the server defaults it to the pool size, capped at 3. |
 
 <!-- values:resume -->
@@ -368,8 +368,9 @@ Changing an inline token changes the chart-owned Secret checksum and rolls the p
 |---|---|---|
 | `metrics.enabled` | `true` | Serves Prometheus metrics on `/metrics` and enables the chart's metrics test hook. |
 | `metrics.authToken` | `""` | Deprecated alias for `endpointAuth.metricsToken`. It remains functional and is stored in the chart-owned endpoint-auth Secret, not the ConfigMap. Combining it with `endpointAuth.metricsToken` or `endpointAuth.existingSecret` makes rendering fail, because the deprecated value would otherwise be discarded without warning. |
-| `metrics.rateLimitPoll.enabled` | `true` | Polls the GitHub rate limit API so remaining quota is visible before exchanges start failing. |
-| `metrics.rateLimitPoll.interval` | `"60s"` | Poll interval for the rate limit API. |
+| `metrics.rateLimitPoll.enabled` | `true` | Probes each pool member's installation rate limit bucket on a timer with a conditional `GET /emojis` request, so remaining quota is visible before exchanges start failing and `rate_limit_aware` pools have readings to route on. |
+| `metrics.rateLimitPoll.interval` | `"60s"` | Probe interval. Only the first probe per token spends a request; later probes are answered with a free `304 Not Modified`. |
+| `metrics.rateLimitPoll.forceCountedInterval` | `""` | Longest a probe may answer from a cached `304` before it pays for another counted read. A `304` carries no usable reading for an installation token, so this bounds how stale the quota view behind `rate_limit_aware` gets, at one spent request per instance each time it forces a read. `"0s"` makes every probe counted. Empty leaves the key out of the rendered config, and the server's default, `5m`, applies. Set it only on github-sts 0.1.2 or later: older images reject the key. |
 | `metrics.reachabilityProbe.enabled` | `true` | Probes GitHub API reachability on a timer, which separates an egress failure from a policy failure during an incident. |
 | `metrics.reachabilityProbe.interval` | `"30s"` | Reachability probe interval. |
 
@@ -417,15 +418,15 @@ The Prometheus Operator resolves `bearerTokenSecret` in the namespace that conta
 
 ## Tracing
 
-OTLP trace export. **No published server release emits spans yet.** The 0.1.1 this chart's `appVersion` pins initializes the OTLP exporter and installs W3C propagation, but registers no HTTP instrumentation, so enabling tracing is configuration-valid and exports nothing at all. The `otelhttp` handler described below is on the server's main branch, unreleased — treat the rest of this section as a forward description until `appVersion` moves to a release carrying it. The chart omits the whole `tracing:` section from the rendered config when disabled, so pinning an older `image.tag` stays safe.
+OTLP trace export. Spans need github-sts 0.1.2 or later, which is what this chart's `appVersion` pins. 0.1.1 accepts the same settings and starts the exporter, but emits no spans. The chart omits the whole `tracing:` section from the rendered config when disabled, so pinning an older `image.tag` stays safe.
 
-The instrumented build emits one root server span per request, opened by the `otelhttp` handler that sits outermost in the middleware chain. The span is named by route — `POST /sts/exchange`, never the raw path, because a path carries repository names and would make span names unbounded — and carries `http.route` alongside roughly thirty `sts.*` and `github.*` attributes: app and instance, scope, identity, result, OIDC issuer and subject, source and target repository with owners and IDs, the four-set permission chain (installation, policy, requested, granted), policy provenance, the bundle decision, client address and user agent. They are built from the same audit event as the audit line, at the one point every exit path of the handler funnels through, so a span and its audit record cannot describe the same exchange differently.
+The server emits one root server span per request, opened by the `otelhttp` handler that sits outermost in the middleware chain. The span is named by route — `POST /sts/exchange`, never the raw path, because a path carries repository names and would make span names unbounded — and carries `http.route` alongside roughly thirty `sts.*` and `github.*` attributes: app and instance, scope, identity, result, OIDC issuer and subject, source and target repository with owners and IDs, the four-set permission chain (installation, policy, requested, granted), policy provenance, the bundle decision, client address and user agent. They are built from the same audit event as the audit line, at the one point every exit path of the handler funnels through, so a span and its audit record cannot describe the same exchange differently.
 
 A policy denial leaves the span status `Unset` rather than `Error`. A denial is a working broker doing its job, and marking it `Error` would make span-derived error rates track how often the trust policy fired — the authorization outcome lives in the `sts.result` attribute instead, where every result stays distinguishable. `Error` is reserved for a cache fault, an upstream GitHub error, and the bundle conditions that fail closed with a 503.
 
 Probe and scrape paths — `/health`, `/ready`, `/healthz`, `/readyz`, `/metrics` — are filtered and produce no spans, so a one-second kubelet probe cannot outnumber real exchanges in your backend. An inbound `traceparent` is honoured rather than replaced by a fresh root, so an exchange joins the calling workflow's trace. The OTel HTTP metrics that `otelhttp` would otherwise emit are pinned off, so nothing appears alongside the chart's `githubsts_` metrics.
 
-**There are no per-stage child spans yet.** One span per request means a slow exchange shows up as a slow span with its full authorization context, but the latency is not broken down across OIDC validation, JTI reservation, policy load and evaluation, Rego bundles, and the GitHub mint. That breakdown is designed and lands in a later server release.
+Each stage of an exchange is a child of the root span, so a slow exchange shows where the time went: `sts.oidc.validate`, `sts.jti.reserve`, `github.target.resolve`, `sts.policy.load`, `sts.policy.evaluate`, `sts.bundle.evaluate` and `sts.token.issue`, among others. GitHub work nests below them (`github.app_pool.attempt`, then `github.token.mint`), and the outbound requests to GitHub, OIDC discovery and JWKS carry OpenTelemetry HTTP client spans. A stage that never ran, because an earlier one rejected the request, has no span. The server's [tracing guide]({{< relref "/operations/tracing" >}}) lists every span and how to read a failed exchange.
 
 Traces are sampled diagnostics; the audit log remains the system of record for authorization decisions. The `trace_id` widening to 32 hex characters is independent of this setting — it arrived with v0.1.1 and applies whether tracing is on or off.
 
