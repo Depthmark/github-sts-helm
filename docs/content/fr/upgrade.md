@@ -128,7 +128,7 @@ L'image serveur doit gérer les pools, soit github-sts 0.1.1 ou ultérieure, ce 
 
 Enregistrer une deuxième GitHub App ne suffit pas : installez-la sur les mêmes dépôts, avec les mêmes permissions, que celle déjà en service. Le serveur considère les membres d'un pool comme interchangeables et ne vérifie pas qu'ils le sont.
 
-Les métriques gagnent une étiquette `instance`. Toutes les séries GitHub App, de limitation de débit et d'accessibilité deviennent par instance, y compris pour les apps laissées à une seule App, qui compte comme un pool d'une instance. Les tableaux de bord et alertes qui agrègent ces séries ont besoin d'un `sum by (app)` ou équivalent avant la mise à niveau, sans quoi ils afficheront une série par instance. `githubsts_app_pool_exhausted_total` est le signal à alerter : il s'incrémente lorsque toutes les instances d'un pool ont échoué pour une même requête.
+Les métriques gagnent une étiquette `github_app_instance`. Toutes les séries GitHub App, de limitation de débit et d'accessibilité deviennent par instance, y compris pour les apps laissées à une seule App, qui compte comme un pool d'une instance. Les tableaux de bord et alertes qui agrègent ces séries ont besoin d'un `sum by (github_app)` ou équivalent avant la mise à niveau, sans quoi ils afficheront une série par instance. `githubsts_app_pool_exhausted_total` est le signal à alerter : il s'incrémente lorsque toutes les instances d'un pool ont échoué pour une même requête.
 
 Gardez l'ancienne App installée tant que le pool n'a pas servi de trafic. Le retour arrière est un `helm rollback`, qui restaure l'entrée précédente et son montage, mais ne fonctionne que si l'App qu'elle nomme est encore installée.
 

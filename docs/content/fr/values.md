@@ -38,7 +38,7 @@ Chaque entrée accepte les champs suivants :
 
 ### Regrouper plusieurs GitHub Apps sous un seul nom
 
-Une entrée adossée à `instances` répartit les échanges de ce nom d'app sur plusieurs GitHub Apps physiques, chacune disposant de son propre quota de limitation de débit principal. Les clients continuent d'envoyer le seul nom logique dans `app=` ; l'instance ayant servi une requête n'apparaît que dans l'étiquette de métrique `instance` et dans le journal d'audit. [Configuration]({{< relref "/reference/configuration" >}}) documente la façon dont le serveur sélectionne une instance et bascule vers une autre.
+Une entrée adossée à `instances` répartit les échanges de ce nom d'app sur plusieurs GitHub Apps physiques, chacune disposant de son propre quota de limitation de débit principal. Les clients continuent d'envoyer le seul nom logique dans `app=` ; l'instance ayant servi une requête n'apparaît que dans l'étiquette de métrique `github_app_instance` et dans le journal d'audit. [Configuration]({{< relref "/reference/configuration" >}}) documente la façon dont le serveur sélectionne une instance et bascule vers une autre.
 
 ```yaml
 github:
