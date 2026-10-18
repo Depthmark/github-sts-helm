@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.2](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.1.1...github-sts-v0.1.2) (2026-10-18)
+
+
+### ✨ Features
+
+* add json schema validation for the values ([#58](https://github.com/Depthmark/github-sts-helm/issues/58)) ([980e7de](https://github.com/Depthmark/github-sts-helm/commit/980e7debe9240c24f41c5ca533b521ee4e280448))
+* support github-sts 0.1.2 ([#54](https://github.com/Depthmark/github-sts-helm/issues/54)) ([9b50cf1](https://github.com/Depthmark/github-sts-helm/commit/9b50cf19a3f60dc2d82655f8d9a9a0e7b114fedf))
+
 ## [0.1.1](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.0.4...github-sts-v0.1.1) (2026-09-21)
 
 
