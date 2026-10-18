@@ -529,7 +529,7 @@ tests:
   - it: should mount audit log volume when enabled
     template: deployment.yaml
     set:
-      logging.audit.fileEnabled: true
+      audit.fileEnabled: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].volumeMounts

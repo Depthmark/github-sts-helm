@@ -1,0 +1,125 @@
+suite: Values schema
+templates:
+  - configmap.yaml
+values:
+  - ../ci/single-app-values.yaml
+tests:
+  # -------------------------------------------------------------------------
+  # Rejected before anything renders
+  # -------------------------------------------------------------------------
+  - it: should reject a misspelled key
+    set:
+      endpointAuth.metricToken: x
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'metricToken' not allowed"
+
+  - it: should reject an unknown log level
+    set:
+      logging.level: verbose
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/logging/level': 'verbose' does not match pattern"
+
+  - it: should reject a value of the wrong type
+    set:
+      replicaCount: two
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/replicaCount': got string, want integer"
+
+  - it: should reject rate_limit_aware while the rate limit poller is off
+    set:
+      github.apps.checkout:
+        instances:
+          - appId: 111111
+            existingSecret: checkout-1-credentials
+        rotation:
+          strategy: rate_limit_aware
+      metrics.rateLimitPoll.enabled: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/metrics/rateLimitPoll/enabled': value must be true"
+
+  - it: should reject a key misspelled inside an app entry
+    set:
+      github.apps.default.existingSecrets: typo
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'existingSecrets' not allowed"
+
+  # -------------------------------------------------------------------------
+  # Accepted: free-form maps, and forms that work today
+  # -------------------------------------------------------------------------
+  - it: should accept any key under global
+    set:
+      global.x: 1
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should accept any pod annotation
+    set:
+      podAnnotations.a: b
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should accept rate_limit_aware while the poller is on
+    set:
+      github.apps.checkout:
+        instances:
+          - appId: 111111
+            existingSecret: checkout-1-credentials
+        rotation:
+          strategy: rate_limit_aware
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should accept the poller off when no pool uses rate_limit_aware
+    set:
+      metrics.rateLimitPoll.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should accept an upper-case log level, which the chart lowercases
+    set:
+      logging.level: INFO
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'log_level: "info"'
+
+  - it: should accept appId as a string
+    set:
+      github.apps.default.appId: "12345"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "app_id: 12345"
+
+  - it: should accept a numeric string where a decimal goes, as --set passes it
+    set:
+      rateLimit.rate: "0.5"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: "rate: 0.5"
+
+  - it: should reject text where a decimal goes
+    set:
+      rateLimit.rate: fast
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/rateLimit/rate': 'fast' does not match pattern"
+
+  - it: should leave range checks to the chart's own error messages
+    set:
+      tls.enabled: true
+      tls.existingSecret: github-sts-tls
+      tls.minVersion: "1.1"
+    asserts:
+      - failedTemplate:
+          errorMessage: 'tls.minVersion must be "1.2" or "1.3" (got "1.1")'

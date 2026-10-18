@@ -29,6 +29,26 @@ helm diff upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 `helm diff` is the [helm-diff](https://github.com/databus23/helm-diff) plugin. Without it, `helm template ... | kubectl diff -f -` gets you most of the way.
 
+## Values are checked against a schema
+
+The chart ships a `values.schema.json`, and Helm checks your values against it on every `lint`, `template`, `install` and `upgrade`, before anything renders. A values file that installed before can now be rejected, because these used to be ignored without a word:
+
+- **A key the chart does not know**, such as `endpointAuth.metricToken` for `endpointAuth.metricsToken`. A misspelled security setting used to leave its default in place, `/metrics` unauthenticated in that example.
+- **A value of the wrong type**, such as `replicaCount: two`.
+- **A value outside its fixed set**: `logging.level` (any case), `bundleEnforcement`, `jti.backend`, `image.pullPolicy` and `service.type`.
+- **A pool on `rotation.strategy: rate_limit_aware` while `metrics.rateLimitPoll.enabled` is false.** That pool would route on quota readings from github-sts's own GitHub calls only.
+
+Maps that take arbitrary keys stay open: `global`, every `annotations` and `labels` map, `resources`, `nodeSelector`, `affinity`, the security contexts, `bundles` entries and the Prometheus `tlsConfig` and `bearerTokenSecret` blocks.
+
+Check your values before upgrading, with the chart version you are moving to:
+
+```bash
+helm pull oci://ghcr.io/depthmark/charts/github-sts --version <new version> --untar
+helm lint github-sts -f values.yaml
+```
+
+Each rejection names the value, for example `at '/endpointAuth': additional properties 'metricToken' not allowed`. Fix the key or the value in your values file; do not reach for `--skip-schema-validation`, which turns off the whole schema, not only the rule you hit.
+
 ## Routes now publish `/sts/` only
 
 Earlier chart releases defaulted `ingress.hosts[].paths` to `/` with `pathType: Prefix`, and rendered the HTTPRoute with a hard-coded `PathPrefix` match on `/`. Either one published `/health`, `/ready`, and `/metrics` on the public hostname alongside the exchange endpoint. Both now default to `/sts/`.

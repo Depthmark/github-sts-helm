@@ -30,6 +30,26 @@ helm diff upgrade github-sts oci://ghcr.io/depthmark/charts/github-sts \
 
 `helm diff` est le greffon [helm-diff](https://github.com/databus23/helm-diff). À défaut, `helm template ... | kubectl diff -f -` en fait l'essentiel.
 
+## Les valeurs sont vérifiées par un schéma
+
+Le chart fournit un `values.schema.json`, et Helm y confronte vos valeurs à chaque `lint`, `template`, `install` et `upgrade`, avant toute génération. Un fichier de valeurs qui s'installait auparavant peut désormais être refusé, car les cas suivants étaient ignorés sans un mot :
+
+- **Une clé que le chart ne connaît pas**, comme `endpointAuth.metricToken` pour `endpointAuth.metricsToken`. Un réglage de sécurité mal orthographié laissait sa valeur par défaut en place, ici un `/metrics` non authentifié.
+- **Une valeur du mauvais type**, comme `replicaCount: two`.
+- **Une valeur hors de son ensemble fixe** : `logging.level` (quelle que soit la casse), `bundleEnforcement`, `jti.backend`, `image.pullPolicy` et `service.type`.
+- **Un pool en `rotation.strategy: rate_limit_aware` alors que `metrics.rateLimitPoll.enabled` vaut false.** Ce pool routerait sur des lectures de quota issues des seuls appels GitHub de github-sts.
+
+Les maps qui acceptent des clés arbitraires restent ouvertes : `global`, chaque map `annotations` et `labels`, `resources`, `nodeSelector`, `affinity`, les contextes de sécurité, les entrées de `bundles` et les blocs Prometheus `tlsConfig` et `bearerTokenSecret`.
+
+Vérifiez vos valeurs avant la mise à niveau, avec la version du chart visée :
+
+```bash
+helm pull oci://ghcr.io/depthmark/charts/github-sts --version <nouvelle version> --untar
+helm lint github-sts -f values.yaml
+```
+
+Chaque refus nomme la valeur, par exemple `at '/endpointAuth': additional properties 'metricToken' not allowed`. Corrigez la clé ou la valeur dans votre fichier de valeurs ; n'utilisez pas `--skip-schema-validation`, qui désactive tout le schéma, pas seulement la règle rencontrée.
+
 ## Les routes ne publient plus que `/sts/`
 
 Les versions précédentes du chart donnaient à `ingress.hosts[].paths` la valeur par défaut `/` avec `pathType: Prefix`, et généraient la HTTPRoute avec une correspondance `PathPrefix` figée sur `/`. Dans les deux cas, `/health`, `/ready` et `/metrics` étaient publiés sur le nom d'hôte public à côté du point d'entrée d'échange. Les deux valent désormais `/sts/` par défaut.

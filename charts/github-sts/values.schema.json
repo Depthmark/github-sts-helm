@@ -1,0 +1,1693 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "github": {
+            "properties": {
+              "apps": {
+                "not": {
+                  "additionalProperties": {
+                    "not": {
+                      "properties": {
+                        "rotation": {
+                          "properties": {
+                            "strategy": {
+                              "const": "rate_limit_aware"
+                            }
+                          },
+                          "required": [
+                            "strategy"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "rotation"
+                      ]
+                    }
+                  },
+                  "required": []
+                },
+                "required": []
+              }
+            },
+            "required": [
+              "apps"
+            ]
+          }
+        },
+        "required": [
+          "github"
+        ]
+      },
+      "required": [],
+      "then": {
+        "properties": {
+          "metrics": {
+            "properties": {
+              "rateLimitPoll": {
+                "properties": {
+                  "enabled": {
+                    "const": true,
+                    "required": []
+                  }
+                },
+                "required": []
+              }
+            },
+            "required": []
+          }
+        },
+        "required": []
+      }
+    }
+  ],
+  "properties": {
+    "affinity": {
+      "additionalProperties": true,
+      "description": "Affinity rules",
+      "required": [],
+      "title": "affinity"
+    },
+    "audit": {
+      "additionalProperties": false,
+      "description": "Audit logging",
+      "properties": {
+        "bufferSize": {
+          "default": 1024,
+          "description": "Channel buffer size for async audit writes",
+          "title": "bufferSize",
+          "type": "integer"
+        },
+        "fileEnabled": {
+          "default": true,
+          "description": "Enable audit file logging",
+          "title": "fileEnabled",
+          "type": "boolean"
+        },
+        "filePath": {
+          "default": "/var/log/github-sts/audit.json",
+          "description": "Path to audit log file inside the container",
+          "title": "filePath",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "audit",
+      "type": "object"
+    },
+    "autoscaling": {
+      "additionalProperties": false,
+      "description": "Autoscaling configuration",
+      "patternProperties": {
+        "^targetMemoryUtilizationPercentage$": {
+          "type": "integer"
+        }
+      },
+      "properties": {
+        "behavior": {
+          "additionalProperties": true,
+          "description": "targetMemoryUtilizationPercentage: 80\nHPA scaling behavior (autoscaling/v2 `behavior` block). Tune scale-up\nand scale-down stabilization windows / policies to add backpressure when a\nwebhook flood would otherwise saturate the existing replicas. Empty by\ndefault; the example below is a conservative starting point.",
+          "required": [],
+          "title": "behavior"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Enable Horizontal Pod Autoscaler",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "maxReplicas": {
+          "default": 10,
+          "description": "Maximum number of replicas",
+          "title": "maxReplicas",
+          "type": "integer"
+        },
+        "minReplicas": {
+          "default": 2,
+          "description": "Minimum number of replicas",
+          "title": "minReplicas",
+          "type": "integer"
+        },
+        "targetCPUUtilizationPercentage": {
+          "default": 80,
+          "description": "Target CPU utilization percentage",
+          "title": "targetCPUUtilizationPercentage",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "title": "autoscaling"
+    },
+    "bundleEnforcement": {
+      "default": "optional",
+      "description": "Enterprise Rego/OPA policy bundles\nBundle enforcement mode: `optional` or `required`. The server requires a\nvalid value here and refuses to start without one, so the chart always\nrenders it. `optional` evaluates whatever `bundles` lists and falls back to\nYAML-only trust-policy authorization when the list is empty. `required` turns\nthe Rego layer into a startup precondition: at least one bundle must be\nconfigured, every entry needs an `expected_policy_revision` and an `oci://`\nref pinned to `\n`cosign.skip_verification` must stay false, and a bundle that applies to\nevery app (`apps: []`) must use `fail_mode: closed`.",
+      "enum": [
+        "optional",
+        "required"
+      ],
+      "required": [],
+      "title": "bundleEnforcement"
+    },
+    "bundles": {
+      "description": "Signed Rego/OPA bundles evaluated after the YAML trust policy allows and\nbefore a GitHub installation token is minted. Entries are passed through to\nthe server's top-level `bundles:` config without validation or renaming, so\nuse the server's snake_case field names. For a local file ref,\n`registry.auth.password_file`, or `cosign.public_key_ref`, mount the file\nwith `extraVolumes` and `extraVolumeMounts` and point the field at the\nmounted path.",
+      "items": {
+        "required": []
+      },
+      "title": "bundles",
+      "type": "array"
+    },
+    "commonLabels": {
+      "additionalProperties": true,
+      "description": "Labels to add to all deployed objects",
+      "required": [],
+      "title": "commonLabels"
+    },
+    "endpointAuth": {
+      "additionalProperties": false,
+      "description": "Bearer tokens for the operational endpoints. Both are optional and empty by\ndefault, which leaves the endpoints unauthenticated. The broker treats an\nempty token as \"no auth required\".\n\nTokens are never written into the ConfigMap. The chart puts them in a Secret\nand injects them as GITHUBSTS_HEALTH_AUTH_TOKEN and\nGITHUBSTS_METRICS_AUTH_TOKEN, which the broker reads in preference to the\nconfig file. The health token is also inlined into the liveness probe's pod\nspec because the kubelet cannot resolve a Secret reference for HTTP headers.",
+      "properties": {
+        "existingSecret": {
+          "default": "",
+          "description": "Existing Secret holding the tokens. When empty and a token is set below,\nthe chart creates a Secret of its own. Point this at your own Secret when\nthe token comes from an external secret manager. The chart then renders no\nSecret and only references it, and the two key names below declare which\ntokens that Secret actually holds.",
+          "title": "existingSecret",
+          "type": "string"
+        },
+        "healthKey": {
+          "default": "health-auth-token",
+          "description": "Key inside the Secret holding the /health bearer token. Clear it to\ndeclare that `existingSecret` holds no health token, which leaves /health\nunauthenticated and lets the liveness probe stay on `httpGet`.",
+          "title": "healthKey",
+          "type": "string"
+        },
+        "healthToken": {
+          "default": "",
+          "description": "Bearer token required on `GET /health`. Empty leaves /health open.\n`/ready` is never authenticated by the broker, so readiness and startup\nprobes are unaffected. Ignored when `existingSecret` is set.",
+          "title": "healthToken",
+          "type": "string"
+        },
+        "metricsKey": {
+          "default": "metrics-auth-token",
+          "description": "Key inside the Secret holding the /metrics bearer token. Clear it to\ndeclare that `existingSecret` holds no metrics token. The chart then wires\nno bearer token into the ServiceMonitor or PodMonitor, which would\notherwise point Prometheus at a key that does not exist and break the\nscrape.",
+          "title": "metricsKey",
+          "type": "string"
+        },
+        "metricsToken": {
+          "default": "",
+          "description": "Bearer token required on `GET /metrics`. Empty leaves /metrics open.\nPrometheus needs the same token. See\n`serviceMonitor.bearerTokenSecret`. Ignored when `existingSecret` is set.",
+          "title": "metricsToken",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "endpointAuth",
+      "type": "object"
+    },
+    "extraEnv": {
+      "description": "Extra environment variables",
+      "items": {
+        "required": []
+      },
+      "title": "extraEnv",
+      "type": "array"
+    },
+    "extraVolumeMounts": {
+      "description": "Extra volume mounts for the container",
+      "items": {
+        "required": []
+      },
+      "title": "extraVolumeMounts",
+      "type": "array"
+    },
+    "extraVolumes": {
+      "description": "Extra volumes for the pod",
+      "items": {
+        "required": []
+      },
+      "title": "extraVolumes",
+      "type": "array"
+    },
+    "fullnameOverride": {
+      "default": "",
+      "description": "Override the full release name",
+      "title": "fullnameOverride",
+      "type": "string"
+    },
+    "github": {
+      "additionalProperties": false,
+      "description": "GitHub App configuration (required)\nEach entry under apps is a logical app identified by name.\nThe app name is used in policy paths: {policy.basePath}/{appName}/{identity}.sts.yaml\nEvery private key must be stored in an existing Kubernetes Secret.\nFor a single-app deployment, define one entry (e.g. \"default\").\n\nAn entry is backed either by one GitHub App (`appId` + `existingSecret`) or by\na pool of several under `instances`, which spreads exchanges for that app name\nacross independent GitHub rate-limit buckets. The two forms are mutually\nexclusive on one entry; the chart fails the render if both are set.\n\nPooled apps require a github-sts image that knows `instances:`, meaning 0.1.1\nor later, which is what this chart's `appVersion` pins. An older image rejects\nthe key outright instead of falling back to the flat form. The config decoder\nruns with known-fields checking, so the pod CrashLoopBackOffs with\n`field instances not found in type config.AppConfig`. Only an `image.tag` or\n`image.digest` override below the `appVersion` reaches that state.\n\n`policyResolution` decides which repository wins when both the requesting repo\nand the organization policy repo hold a policy for an identity. It only means\nanything alongside `orgPolicyRepo`, and the server defaults it to `org_first`\nwhenever one is set.",
+      "properties": {
+        "apps": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "appId": {
+                "type": [
+                  "integer",
+                  "string"
+                ]
+              },
+              "existingSecret": {
+                "type": "string"
+              },
+              "instances": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "appId": {
+                      "type": [
+                        "integer",
+                        "string"
+                      ]
+                    },
+                    "existingSecret": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "integer"
+                      ]
+                    },
+                    "secretPrivateKeyKey": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "orgPolicyRepo": {
+                "type": "string"
+              },
+              "policyResolution": {
+                "type": "string"
+              },
+              "rotation": {
+                "additionalProperties": false,
+                "properties": {
+                  "maxAttempts": {
+                    "type": "integer"
+                  },
+                  "minRemainingPct": {
+                    "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+                    "type": [
+                      "number",
+                      "string"
+                    ]
+                  },
+                  "strategy": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "secretPrivateKeyKey": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "description": "GitHub Apps map. At least one app must be configured.",
+          "required": [],
+          "title": "apps"
+        }
+      },
+      "required": [],
+      "title": "github",
+      "type": "object"
+    },
+    "global": {
+      "description": "Global values are values that can be accessed from any chart or subchart by exactly the same name.",
+      "required": [],
+      "title": "global",
+      "type": "object"
+    },
+    "httproute": {
+      "additionalProperties": false,
+      "description": "HTTPRoute configuration (Gateway API)",
+      "properties": {
+        "annotations": {
+          "additionalProperties": true,
+          "description": "HTTPRoute annotations",
+          "required": [],
+          "title": "annotations"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Enable HTTPRoute",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "hostnames": {
+          "description": "- name: my-gateway\n  namespace: gateway-system\n  sectionName: https\nHostnames for routing",
+          "items": {
+            "required": []
+          },
+          "title": "hostnames",
+          "type": "array"
+        },
+        "parentRefs": {
+          "description": "Gateway parent references",
+          "items": {
+            "required": []
+          },
+          "title": "parentRefs",
+          "type": "array"
+        },
+        "paths": {
+          "description": "- github-sts.example.com\nPath matches routed to the Service. Scoped the same way as\n`ingress.hosts`: the default routes the exchange endpoint only and keeps\n`/health`, `/ready` and `/metrics` off the Gateway. Each entry takes a\n`path` and a `type` (`PathPrefix` or `Exact`). The list may not be empty —\nGateway API reads a rule with no matches as matching every path.",
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "default": "/sts/",
+                    "title": "path",
+                    "type": "string"
+                  },
+                  "type": {
+                    "default": "PathPrefix",
+                    "title": "type",
+                    "type": "string"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            ],
+            "required": []
+          },
+          "title": "paths",
+          "type": "array"
+        },
+        "port": {
+          "default": 8080,
+          "description": "Port to route traffic to",
+          "title": "port",
+          "type": "integer"
+        }
+      },
+      "required": [],
+      "title": "httproute",
+      "type": "object"
+    },
+    "image": {
+      "additionalProperties": false,
+      "description": "Image configuration",
+      "properties": {
+        "digest": {
+          "default": "",
+          "description": "Image digest in `sha256:\u003chex\u003e` form. When set, the chart renders\n`repository\nthe deployed bytes are immutable and verifiable by cosign / Kyverno\n`verifyImages` / Sigstore policy-controller. Tag-based pulls can silently\nchange underneath you when a tag is overwritten upstream; digest pulls\ncannot. Use `crane digest \u003cimage:tag\u003e` (or `docker buildx imagetools\ninspect`) to resolve a tag to its digest before setting this.",
+          "title": "digest",
+          "type": "string"
+        },
+        "pullPolicy": {
+          "default": "IfNotPresent",
+          "description": "Image pull policy. With a tag pull, `IfNotPresent` is fine; with a\ndigest pull, the kubelet treats the digest as immutable and skips re-pull\nregardless of policy.",
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ],
+          "required": [],
+          "title": "pullPolicy"
+        },
+        "registry": {
+          "default": "ghcr.io",
+          "description": "Image registry",
+          "title": "registry",
+          "type": "string"
+        },
+        "repository": {
+          "default": "depthmark/github-sts",
+          "description": "Image repository",
+          "title": "repository",
+          "type": "string"
+        },
+        "tag": {
+          "default": "",
+          "description": "Image tag (defaults to Chart.appVersion). Ignored when `digest` is set.",
+          "required": [],
+          "title": "tag",
+          "type": [
+            "string",
+            "number"
+          ]
+        }
+      },
+      "required": [],
+      "title": "image",
+      "type": "object"
+    },
+    "imagePullSecrets": {
+      "description": "Secrets for pulling images from private registries",
+      "items": {
+        "required": []
+      },
+      "title": "imagePullSecrets",
+      "type": "array"
+    },
+    "ingress": {
+      "additionalProperties": false,
+      "description": "Ingress configuration (Kubernetes Ingress API)",
+      "properties": {
+        "annotations": {
+          "additionalProperties": true,
+          "description": "Ingress annotations",
+          "required": [],
+          "title": "annotations"
+        },
+        "className": {
+          "default": "",
+          "description": "Ingress class name",
+          "title": "className",
+          "type": "string"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Enable Ingress",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "hosts": {
+          "description": "cert-manager.io/cluster-issuer: \"letsencrypt-prod\"\nIngress host rules. The default publishes the exchange endpoint and\nnothing else: `/sts/` with `pathType: Prefix` matches `/sts/exchange` and\nleaves `/health`, `/ready` and `/metrics` reachable only from inside the\ncluster. Widening a path to `/` puts all three on the public hostname —\n`/metrics` is unauthenticated unless `endpointAuth.metricsToken` is set, and\nit carries per-app exchange counts and GitHub API rate limit state.",
+          "items": {
+            "anyOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "host": {
+                    "default": "github-sts.example.com",
+                    "title": "host",
+                    "type": "string"
+                  },
+                  "paths": {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": false,
+                          "properties": {
+                            "path": {
+                              "default": "/sts/",
+                              "title": "path",
+                              "type": "string"
+                            },
+                            "pathType": {
+                              "default": "Prefix",
+                              "title": "pathType",
+                              "type": "string"
+                            }
+                          },
+                          "required": [],
+                          "type": "object"
+                        }
+                      ],
+                      "required": []
+                    },
+                    "title": "paths",
+                    "type": "array"
+                  }
+                },
+                "required": [],
+                "type": "object"
+              }
+            ],
+            "required": []
+          },
+          "title": "hosts",
+          "type": "array"
+        },
+        "tls": {
+          "description": "TLS configuration",
+          "items": {
+            "required": []
+          },
+          "title": "tls",
+          "type": "array"
+        }
+      },
+      "required": [],
+      "title": "ingress",
+      "type": "object"
+    },
+    "jti": {
+      "additionalProperties": false,
+      "description": "JTI replay prevention",
+      "properties": {
+        "backend": {
+          "default": "memory",
+          "description": "Backend: \"memory\" or \"redis\"",
+          "enum": [
+            "memory",
+            "redis"
+          ],
+          "required": [],
+          "title": "backend"
+        },
+        "redisUrl": {
+          "default": "",
+          "description": "Required if backend=redis",
+          "title": "redisUrl",
+          "type": "string"
+        },
+        "ttl": {
+          "default": "1h",
+          "description": "How long to remember consumed JTIs (Go duration string)",
+          "title": "ttl",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "jti",
+      "type": "object"
+    },
+    "logging": {
+      "additionalProperties": false,
+      "description": "Logging configuration",
+      "properties": {
+        "level": {
+          "default": "info",
+          "description": "Application log level (debug | info | warn | error)",
+          "pattern": "^([Dd][Ee][Bb][Uu][Gg]|[Ii][Nn][Ff][Oo]|[Ww][Aa][Rr][Nn]|[Ee][Rr][Rr][Oo][Rr])$",
+          "title": "level",
+          "type": "string"
+        },
+        "suppressHealthLogs": {
+          "default": true,
+          "description": "Suppress health/ready/metrics access logs",
+          "title": "suppressHealthLogs",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "title": "logging",
+      "type": "object"
+    },
+    "metrics": {
+      "additionalProperties": false,
+      "description": "Metrics configuration",
+      "properties": {
+        "authToken": {
+          "default": "",
+          "description": "DEPRECATED, removed in a future chart release. Use\n`endpointAuth.metricsToken`, which keeps the token out of the ConfigMap.\nCombining it with `endpointAuth.metricsToken` or\n`endpointAuth.existingSecret` is rejected at render time, because the\ndeprecated value would otherwise be discarded without warning.",
+          "title": "authToken",
+          "type": "string"
+        },
+        "enabled": {
+          "default": true,
+          "description": "Enable Prometheus metrics endpoint",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "rateLimitPoll": {
+          "additionalProperties": false,
+          "description": "Rate limit polling configuration",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "Probe each pool member's installation rate limit bucket on a timer,\nwith a conditional `GET /emojis` request. Feeds the\n`githubsts_github_rate_limit_*` gauges and the quota readings that\n`rotation.strategy: rate_limit_aware` routes on; with this off, those\nreadings come only from github-sts's own GitHub calls.",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "forceCountedInterval": {
+              "default": "",
+              "description": "Longest a probe may answer from a cached `304` before it pays for a\ncounted read again (Go duration string). A `304` carries no usable\nreading for an installation token, so this bounds how stale the quota\nview behind `rate_limit_aware` can get, at the cost of one spent request\nper instance each time it forces a read. `\"0s\"` makes every probe\ncounted. Empty leaves the key out of the rendered config, so the\nserver's own default (`5m`) applies and an image older than 0.1.2, which\nrejects the key, still starts.",
+              "required": [],
+              "title": "forceCountedInterval",
+              "type": [
+                "string",
+                "number"
+              ]
+            },
+            "interval": {
+              "default": "60s",
+              "description": "Probe interval (Go duration string). Only the first probe per token\nspends a request; later ones are answered with a free `304 Not Modified`.",
+              "title": "interval",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "rateLimitPoll",
+          "type": "object"
+        },
+        "reachabilityProbe": {
+          "additionalProperties": false,
+          "description": "Reachability probe configuration",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "Enable periodic GitHub API reachability probing",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "interval": {
+              "default": "30s",
+              "description": "Probe interval (Go duration string)",
+              "title": "interval",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "reachabilityProbe",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "metrics",
+      "type": "object"
+    },
+    "nameOverride": {
+      "default": "",
+      "description": "Override the chart name",
+      "title": "nameOverride",
+      "type": "string"
+    },
+    "networkPolicy": {
+      "additionalProperties": false,
+      "description": "NetworkPolicy configuration. Two parallel templates are supported and both\ndefault off. Pick the one your CNI implements (or both for defense-in-depth).",
+      "properties": {
+        "allowKubeDns": {
+          "default": true,
+          "description": "Allow egress to kube-dns (UDP/TCP 53). Applies to whichever policy\nkinds are enabled. Required for any FQDN/external lookup to resolve.",
+          "title": "allowKubeDns",
+          "type": "boolean"
+        },
+        "cilium": {
+          "additionalProperties": false,
+          "description": "CiliumNetworkPolicy (cilium.io/v2). Requires the Cilium CRD. Supports\nFQDN-based egress so hostname allow-lists don't need CIDR maintenance.",
+          "properties": {
+            "deriveJwksHostsFromIssuers": {
+              "default": true,
+              "description": "- matchName: api.github.com\n- matchPattern: \"*.githubusercontent.com\"\nAppend issuer hosts and `oidc.trustedJwksHosts` values to the FQDN\nallow-list as `matchName` entries — issuer hosts cover the same-host\nJWKS case (GitHub Actions), trustedJwksHosts cover providers that\npublish JWKS on a different host (Google → www.googleapis.com).\nDisable to manage the FQDN list manually via `fqdns`.",
+              "title": "deriveJwksHostsFromIssuers",
+              "type": "boolean"
+            },
+            "enabled": {
+              "default": false,
+              "description": "Render a CiliumNetworkPolicy.",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "extraEgress": {
+              "description": "Free-form egress rules merged into the policy.",
+              "items": {
+                "required": []
+              },
+              "title": "extraEgress",
+              "type": "array"
+            },
+            "extraIngress": {
+              "description": "Free-form ingress rules merged into the policy.",
+              "items": {
+                "required": []
+              },
+              "title": "extraIngress",
+              "type": "array"
+            },
+            "fqdns": {
+              "description": "- matchLabels:\n    io.kubernetes.pod.namespace: ingress-nginx\nFQDNSelector entries allowed for egress on TCP 443. Each entry is a\n`matchName` or `matchPattern` map.",
+              "items": {
+                "required": []
+              },
+              "title": "fqdns",
+              "type": "array"
+            },
+            "fromEndpoints": {
+              "description": "EndpointSelector entries allowed to reach the Service port.",
+              "items": {
+                "required": []
+              },
+              "title": "fromEndpoints",
+              "type": "array"
+            }
+          },
+          "required": [],
+          "title": "cilium",
+          "type": "object"
+        },
+        "native": {
+          "additionalProperties": false,
+          "description": "Native NetworkPolicy (networking.k8s.io/v1). Works on any CNI that\nimplements the upstream NetworkPolicy API, but cannot match external\ndestinations by hostname — CIDR allow-lists must be maintained manually.",
+          "properties": {
+            "cidrs": {
+              "description": "- podSelector: {}\n- namespaceSelector:\n    matchLabels:\n      kubernetes.io/metadata.name: ingress-nginx\nExternal CIDR ranges allowed for egress on TCP 443 (e.g. GitHub API,\nJWKS issuer hosts). Operators must populate this for their environment.",
+              "items": {
+                "required": []
+              },
+              "title": "cidrs",
+              "type": "array"
+            },
+            "enabled": {
+              "default": false,
+              "description": "Render a native NetworkPolicy. Sets policyTypes: [Ingress, Egress];\nrules not listed are denied.",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "extraEgress": {
+              "description": "Free-form egress rules merged into the policy (NetworkPolicyEgressRule shape).",
+              "items": {
+                "required": []
+              },
+              "title": "extraEgress",
+              "type": "array"
+            },
+            "extraIngress": {
+              "description": "- 140.82.112.0/20\nFree-form ingress rules merged into the policy (NetworkPolicyIngressRule shape).",
+              "items": {
+                "required": []
+              },
+              "title": "extraIngress",
+              "type": "array"
+            },
+            "from": {
+              "description": "NetworkPolicyPeer entries allowed to reach the Service port. Empty\nlist means no in-cluster ingress is permitted.",
+              "items": {
+                "required": []
+              },
+              "title": "from",
+              "type": "array"
+            }
+          },
+          "required": [],
+          "title": "native",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "networkPolicy",
+      "type": "object"
+    },
+    "nodeSelector": {
+      "additionalProperties": true,
+      "description": "Node selector",
+      "required": [],
+      "title": "nodeSelector"
+    },
+    "oidc": {
+      "additionalProperties": false,
+      "description": "OIDC configuration",
+      "properties": {
+        "allowedIssuers": {
+          "description": "Allowed OIDC token issuers",
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              }
+            ],
+            "required": []
+          },
+          "title": "allowedIssuers",
+          "type": "array"
+        },
+        "requireImmutableSubjectClaims": {
+          "default": true,
+          "description": "Require GitHub.com Actions tokens to carry immutable owner and\nrepository IDs inside the `sub` claim, in the form\n`repo:OWNER\nbroker's own default, so rendering it changes nothing until you set it\nto false.\n\nIt gates only what `sub` must contain. The separate signed\n`repository_id` and `repository_owner_id` claims are mandatory for every\nGitHub.com token either way, and the broker cross-checks them against\nthe subject before audience, replay or policy work. Tokens from any\nother issuer are unaffected, and the immutable format does not exist on\nGitHub Enterprise Server.\n\nRepositories created before 2026-07-15 keep the name-only subject format\nuntil they opt in through the organization or repository Actions OIDC\nsetting, or the REST API. Until a repository has opted in, its exchanges\nare rejected with\n`githubsts_oidc_validation_errors_total{reason=\"github_identity_immutable_subject_required\"}`.\n\nSet false only as an explicit, temporary migration posture: the legacy\nname-only subject is vulnerable to repository namespace reuse, so an\nattacker who acquires an abandoned owner/repo name can present a subject\nthat matches a trust policy written for the original. The broker logs a\nstartup warning, reports\n`security.require_immutable_subject_claims: false` on `/health`, and\ndrops the `githubsts_oidc_immutable_subject_claims_required` gauge to 0\nso the posture is alertable.",
+          "title": "requireImmutableSubjectClaims",
+          "type": "boolean"
+        },
+        "requiredAudience": {
+          "default": "",
+          "description": "Server-wide required `aud` claim. When set, every token must carry\nthis value before any policy lookup or JTI reservation runs — defense\nin depth on top of the per-policy `audience:` field. Leave empty to\nrely solely on per-policy `audience:` enforcement. Recommended in\nproduction: set this to the public URL of your STS deployment so a\nmisconfigured or permissive policy file cannot accept tokens minted\nfor an unrelated relying party.",
+          "title": "requiredAudience",
+          "type": "string"
+        },
+        "trustedJwksHosts": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "Per-issuer JWKS host overrides. Default behavior pins the JWKS\n`Host` header to the issuer host (so a malicious DNS answer for the\nissuer cannot redirect signing-key fetches elsewhere). This map is the\nescape hatch for issuers that legitimately publish JWKS on a different\nhost — Google's `accounts.google.com` issues tokens but serves JWKS\nfrom `www.googleapis.com`, for example. Keys are full issuer URLs\n(with scheme), values are lists of allowed hostnames.\n\nVerify before pinning:\n  curl -s https://accounts.google.com/.well-known/openid-configuration \\\n    | jq -r .jwks_uri\n\nWhen `networkPolicy.cilium.enabled=true`, hosts in this map are\nauto-appended to the FQDN egress allow-list alongside issuer hosts.\nNative NetworkPolicy users must add the corresponding CIDRs to\n`networkPolicy.native.cidrs` manually (no FQDN matching available).",
+          "required": [],
+          "title": "trustedJwksHosts"
+        }
+      },
+      "required": [],
+      "title": "oidc",
+      "type": "object"
+    },
+    "pdb": {
+      "additionalProperties": false,
+      "description": "PodDisruptionBudget configuration",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Create a PodDisruptionBudget. Recommended whenever replicaCount \u003e 1 or\nautoscaling is enabled, so a node drain cannot evict every replica at once.",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "maxUnavailable": {
+          "default": "~",
+          "description": "Maximum number of pods that may be unavailable during a voluntary\ndisruption. Set this OR minAvailable, not both.",
+          "required": [],
+          "title": "maxUnavailable",
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        },
+        "minAvailable": {
+          "default": 1,
+          "description": "Minimum number of pods that must remain available during a voluntary\ndisruption. Mutually exclusive with maxUnavailable. Defaults to 1 when\nneither field is set.",
+          "required": [],
+          "title": "minAvailable",
+          "type": [
+            "integer",
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [],
+      "title": "pdb",
+      "type": "object"
+    },
+    "podAnnotations": {
+      "additionalProperties": true,
+      "description": "Additional pod annotations",
+      "required": [],
+      "title": "podAnnotations"
+    },
+    "podLabels": {
+      "additionalProperties": true,
+      "description": "Additional pod labels",
+      "required": [],
+      "title": "podLabels"
+    },
+    "podMonitor": {
+      "additionalProperties": false,
+      "description": "PodMonitor for Prometheus Operator (alternative to ServiceMonitor)",
+      "properties": {
+        "annotations": {
+          "additionalProperties": true,
+          "description": "Annotations for the PodMonitor",
+          "required": [],
+          "title": "annotations"
+        },
+        "bearerTokenSecret": {
+          "additionalProperties": true,
+          "description": "Secret holding the bearer token Prometheus presents when scraping.\nRequired once `endpointAuth.metricsToken` is set, or scrapes return 401.\nDefaults to the chart's endpoint-auth Secret when left empty and a token is\nconfigured. When this monitor uses another namespace, mirror the Secret\nthere because the operator resolves it from the monitor namespace.",
+          "required": [],
+          "title": "bearerTokenSecret"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Whether to create a PodMonitor",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "honorLabels": {
+          "default": false,
+          "description": "Honor labels",
+          "title": "honorLabels",
+          "type": "boolean"
+        },
+        "interval": {
+          "default": "30s",
+          "description": "Scrape interval",
+          "title": "interval",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": true,
+          "description": "Additional labels for the PodMonitor",
+          "required": [],
+          "title": "labels"
+        },
+        "metricRelabelings": {
+          "description": "ca:\n  secret:\n    name: github-sts-tls\n    key: ca.crt\nserverName: github-sts.example.com\nMetric relabeling configs",
+          "items": {
+            "required": []
+          },
+          "title": "metricRelabelings",
+          "type": "array"
+        },
+        "namespace": {
+          "default": "",
+          "description": "Namespace where the PodMonitor should be created (defaults to release namespace)",
+          "title": "namespace",
+          "type": "string"
+        },
+        "path": {
+          "default": "/metrics",
+          "description": "Path to scrape metrics from",
+          "title": "path",
+          "type": "string"
+        },
+        "relabelings": {
+          "description": "Relabeling configs",
+          "items": {
+            "required": []
+          },
+          "title": "relabelings",
+          "type": "array"
+        },
+        "scheme": {
+          "default": "",
+          "description": "name: my-github-sts-endpoint-auth\nkey: metrics-auth-token\nScrape scheme. Empty means auto: `https` when `tls.enabled`, else\n`http`. Set explicitly only when something outside the chart (a mesh\nsidecar terminating TLS, for example) changes what the scraper sees.",
+          "title": "scheme",
+          "type": "string"
+        },
+        "scrapeTimeout": {
+          "default": "10s",
+          "description": "Scrape timeout",
+          "title": "scrapeTimeout",
+          "type": "string"
+        },
+        "tlsConfig": {
+          "additionalProperties": true,
+          "description": "`tlsConfig` for the scrape endpoint. When `tls.enabled` is true and this\nis empty, the chart emits `insecureSkipVerify: true`, because Prometheus\nconnects to a Pod IP that a normal serving certificate has no SAN for.\nThat encrypts the scrape without authenticating the target — supply `ca` /\n`caFile` plus `serverName` to verify it properly, and `cert` + `keySecret`\nas well when `tls.clientAuth.enabled` is on, or scrapes will be rejected.",
+          "required": [],
+          "title": "tlsConfig"
+        }
+      },
+      "required": [],
+      "title": "podMonitor",
+      "type": "object"
+    },
+    "podSecurityContext": {
+      "additionalProperties": true,
+      "description": "Pod security context (distroless nonroot image uses uid 65534)",
+      "properties": {
+        "fsGroup": {
+          "default": 65534,
+          "description": "Filesystem group",
+          "title": "fsGroup",
+          "type": "integer"
+        },
+        "runAsGroup": {
+          "default": 65534,
+          "description": "Primary GID for the container process. Pairs with `runAsUser` so the\nprocess has no group membership inherited from the image (some images\nship with `gid=0` even when `uid` is non-root, which fails Pod Security\nAdmission `restricted` and several CIS benchmarks). Distroless `nonroot`\nalready provides gid 65534, so this is a defense-in-depth assertion\nrather than a behavior change for the default image.",
+          "title": "runAsGroup",
+          "type": "integer"
+        },
+        "runAsNonRoot": {
+          "default": true,
+          "description": "Require non-root user",
+          "title": "runAsNonRoot",
+          "type": "boolean"
+        },
+        "runAsUser": {
+          "default": 65534,
+          "description": "UID to run as",
+          "title": "runAsUser",
+          "type": "integer"
+        },
+        "seccompProfile": {
+          "additionalProperties": true,
+          "description": "Seccomp profile applied to all containers in the pod",
+          "properties": {
+            "type": {
+              "default": "RuntimeDefault",
+              "title": "type",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "seccompProfile"
+        }
+      },
+      "required": [],
+      "title": "podSecurityContext"
+    },
+    "policy": {
+      "additionalProperties": false,
+      "description": "Policy configuration",
+      "properties": {
+        "basePath": {
+          "default": ".github/sts",
+          "description": "Base path in repos for trust policies",
+          "title": "basePath",
+          "type": "string"
+        },
+        "cacheTtl": {
+          "default": "60s",
+          "description": "Cache TTL (Go duration string, e.g. \"60s\", \"5m\")",
+          "title": "cacheTtl",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "policy",
+      "type": "object"
+    },
+    "probes": {
+      "additionalProperties": false,
+      "description": "Probe configuration",
+      "properties": {
+        "liveness": {
+          "additionalProperties": false,
+          "description": "Liveness probe configuration",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "Enable liveness probe",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "failureThreshold": {
+              "default": 3,
+              "description": "Failure threshold for liveness probe",
+              "title": "failureThreshold",
+              "type": "integer"
+            },
+            "initialDelaySeconds": {
+              "default": 10,
+              "description": "Initial delay before liveness probe starts",
+              "title": "initialDelaySeconds",
+              "type": "integer"
+            },
+            "periodSeconds": {
+              "default": 30,
+              "description": "Period between liveness probes",
+              "title": "periodSeconds",
+              "type": "integer"
+            },
+            "timeoutSeconds": {
+              "default": 3,
+              "description": "Timeout for liveness probe",
+              "title": "timeoutSeconds",
+              "type": "integer"
+            }
+          },
+          "required": [],
+          "title": "liveness",
+          "type": "object"
+        },
+        "mode": {
+          "default": "auto",
+          "description": "Probe transport for the startup / readiness / liveness probes.\n`auto` (default) picks `httpGet` over HTTP, `httpGet` over HTTPS when\n`tls.enabled`, and `tcpSocket` when `tls.clientAuth.enabled` — the kubelet\ncannot present a client certificate, so an HTTP probe against an mTLS\nlistener fails the handshake and would crash-loop the pod. Force a specific\ntransport with `httpGet` or `tcpSocket`; note that `tcpSocket` only proves\nthe listener accepts connections, not that `/ready` returns 200. Also use\n`tcpSocket` with `endpointAuth.existingSecret`, because the kubelet cannot\nread that Secret to construct the liveness Authorization header.",
+          "title": "mode",
+          "type": "string"
+        },
+        "readiness": {
+          "additionalProperties": false,
+          "description": "Readiness probe configuration",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "description": "Enable readiness probe",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "failureThreshold": {
+              "default": 3,
+              "description": "Failure threshold for readiness probe",
+              "title": "failureThreshold",
+              "type": "integer"
+            },
+            "initialDelaySeconds": {
+              "default": 5,
+              "description": "Initial delay before readiness probe starts",
+              "title": "initialDelaySeconds",
+              "type": "integer"
+            },
+            "periodSeconds": {
+              "default": 10,
+              "description": "Period between readiness probes",
+              "title": "periodSeconds",
+              "type": "integer"
+            },
+            "timeoutSeconds": {
+              "default": 3,
+              "description": "Timeout for readiness probe",
+              "title": "timeoutSeconds",
+              "type": "integer"
+            }
+          },
+          "required": [],
+          "title": "readiness",
+          "type": "object"
+        },
+        "startup": {
+          "additionalProperties": false,
+          "description": "Startup probe configuration. While the startup probe is running, liveness\nand readiness probes are suspended — this lets you grant a long startup\nbudget without weakening steady-state liveness sensitivity. Disabled by\ndefault since the default image starts well under the liveness threshold;\nenable when cold start (JWKS fetch, policy cache warm, restoring a large\nJTI cache from Redis) can exceed `probes.liveness.initialDelaySeconds +\nprobes.liveness.periodSeconds * probes.liveness.failureThreshold`,\notherwise liveness would kill the pod before it ever becomes ready.",
+          "properties": {
+            "enabled": {
+              "default": false,
+              "description": "Enable startup probe. When true, liveness/readiness are gated until\nthis probe first succeeds.",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "failureThreshold": {
+              "default": 30,
+              "description": "Number of consecutive failures before the kubelet gives up and\nrestarts the container. Maximum startup time =\n`failureThreshold * periodSeconds` (default 30 * 5s = 150s).",
+              "title": "failureThreshold",
+              "type": "integer"
+            },
+            "initialDelaySeconds": {
+              "default": 0,
+              "description": "Seconds the kubelet waits after the container starts before the\nfirst probe. Usually 0 since `failureThreshold * periodSeconds`\nalready provides the startup budget.",
+              "title": "initialDelaySeconds",
+              "type": "integer"
+            },
+            "periodSeconds": {
+              "default": 5,
+              "description": "Seconds between probe attempts. Combined with `failureThreshold`\nit sets the maximum allowed startup time.",
+              "title": "periodSeconds",
+              "type": "integer"
+            },
+            "timeoutSeconds": {
+              "default": 3,
+              "description": "Per-attempt HTTP timeout. Increase if startup work makes `/ready`\nrespond slowly under contention.",
+              "title": "timeoutSeconds",
+              "type": "integer"
+            }
+          },
+          "required": [],
+          "title": "startup",
+          "type": "object"
+        }
+      },
+      "required": [],
+      "title": "probes",
+      "type": "object"
+    },
+    "rateLimit": {
+      "additionalProperties": false,
+      "description": "Per-IP rate limiting on the /sts/exchange endpoint",
+      "properties": {
+        "burst": {
+          "default": 20,
+          "description": "Maximum burst size per IP",
+          "title": "burst",
+          "type": "integer"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Enable per-IP rate limiting",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "exemptCidrs": {
+          "description": "CIDR ranges exempt from rate limiting",
+          "items": {
+            "required": []
+          },
+          "title": "exemptCidrs",
+          "type": "array"
+        },
+        "rate": {
+          "default": 10,
+          "description": "Requests per second per IP",
+          "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+          "required": [],
+          "title": "rate",
+          "type": [
+            "number",
+            "string"
+          ]
+        }
+      },
+      "required": [],
+      "title": "rateLimit",
+      "type": "object"
+    },
+    "replicaCount": {
+      "default": 2,
+      "description": "Number of replicas. Defaulted to 2 so a node drain or single-pod OOM does\nnot drop the webhook receiver entirely. Override to 1 only for dev.",
+      "title": "replicaCount",
+      "type": "integer"
+    },
+    "resources": {
+      "additionalProperties": true,
+      "description": "Resource requests and limits",
+      "required": [],
+      "title": "resources"
+    },
+    "revisionHistoryLimit": {
+      "default": 5,
+      "description": "Maximum number of old ReplicaSets retained for `kubectl rollout undo`.\nEach pod-template change (image bump, ConfigMap checksum change, values\ntweak) produces a new ReplicaSet; the old ones stay scaled to 0 as history.\nHigher = deeper rollback window but more etcd objects and `kubectl get rs`\nnoise; lower = leaner cluster state but fewer rollback targets. Set to 0 to\ndisable rollback entirely. The Kubernetes default is 10; 5 is a balance for\nthis chart since `checksum/config` causes a roll on every config change.",
+      "title": "revisionHistoryLimit",
+      "type": "integer"
+    },
+    "securityContext": {
+      "additionalProperties": true,
+      "description": "Container security context",
+      "properties": {
+        "allowPrivilegeEscalation": {
+          "default": false,
+          "description": "Disallow privilege escalation",
+          "title": "allowPrivilegeEscalation",
+          "type": "boolean"
+        },
+        "capabilities": {
+          "additionalProperties": true,
+          "description": "Linux capabilities configuration",
+          "properties": {
+            "drop": {
+              "description": "Linux capabilities to drop",
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  }
+                ],
+                "required": []
+              },
+              "title": "drop",
+              "type": "array"
+            }
+          },
+          "required": [],
+          "title": "capabilities"
+        },
+        "readOnlyRootFilesystem": {
+          "default": true,
+          "description": "Read-only root filesystem",
+          "title": "readOnlyRootFilesystem",
+          "type": "boolean"
+        },
+        "seccompProfile": {
+          "additionalProperties": true,
+          "description": "Seccomp profile for the container (overrides pod-level profile)",
+          "properties": {
+            "type": {
+              "default": "RuntimeDefault",
+              "title": "type",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "seccompProfile"
+        }
+      },
+      "required": [],
+      "title": "securityContext"
+    },
+    "server": {
+      "additionalProperties": false,
+      "description": "Server configuration",
+      "properties": {
+        "shutdownTimeout": {
+          "default": "10s",
+          "description": "Graceful shutdown timeout (Go duration string)",
+          "title": "shutdownTimeout",
+          "type": "string"
+        },
+        "trustForwardedHeaders": {
+          "default": false,
+          "description": "Trust X-Forwarded-For headers for client IP (enable when behind a reverse proxy)",
+          "title": "trustForwardedHeaders",
+          "type": "boolean"
+        }
+      },
+      "required": [],
+      "title": "server",
+      "type": "object"
+    },
+    "service": {
+      "additionalProperties": false,
+      "description": "Service configuration",
+      "properties": {
+        "annotations": {
+          "additionalProperties": true,
+          "description": "Service annotations",
+          "required": [],
+          "title": "annotations"
+        },
+        "appProtocol": {
+          "default": "",
+          "description": "Value for the Service port's `appProtocol` field. Empty means auto:\n`https` when `tls.enabled`, otherwise the field is omitted. Ingress\ncontrollers and mesh implementations use it to decide how to talk to the\nbackend; it is advisory, so a controller that keys off its own annotation\n(e.g. `nginx.ingress.kubernetes.io/backend-protocol: HTTPS`) still needs\nthat annotation set as well.",
+          "title": "appProtocol",
+          "type": "string"
+        },
+        "port": {
+          "default": 8080,
+          "description": "Service port",
+          "title": "port",
+          "type": "integer"
+        },
+        "targetPort": {
+          "default": 8080,
+          "description": "Container target port",
+          "title": "targetPort",
+          "type": "integer"
+        },
+        "type": {
+          "default": "ClusterIP",
+          "description": "Service type",
+          "enum": [
+            "ClusterIP",
+            "NodePort",
+            "LoadBalancer",
+            "ExternalName"
+          ],
+          "required": [],
+          "title": "type"
+        }
+      },
+      "required": [],
+      "title": "service",
+      "type": "object"
+    },
+    "serviceAccount": {
+      "additionalProperties": false,
+      "description": "Service account configuration",
+      "properties": {
+        "annotations": {
+          "additionalProperties": true,
+          "description": "Annotations to add to the service account",
+          "required": [],
+          "title": "annotations"
+        },
+        "automountServiceAccountToken": {
+          "default": false,
+          "description": "Whether to automount the service account token",
+          "title": "automountServiceAccountToken",
+          "type": "boolean"
+        },
+        "create": {
+          "default": true,
+          "description": "Whether to create a service account",
+          "title": "create",
+          "type": "boolean"
+        },
+        "name": {
+          "default": "",
+          "description": "Name of the service account (defaults to fullname)",
+          "title": "name",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "serviceAccount",
+      "type": "object"
+    },
+    "serviceMonitor": {
+      "additionalProperties": false,
+      "description": "ServiceMonitor for Prometheus Operator",
+      "properties": {
+        "annotations": {
+          "additionalProperties": true,
+          "description": "Annotations for the ServiceMonitor",
+          "required": [],
+          "title": "annotations"
+        },
+        "bearerTokenSecret": {
+          "additionalProperties": true,
+          "description": "Secret holding the bearer token Prometheus presents when scraping.\nRequired once `endpointAuth.metricsToken` is set, or scrapes return 401.\nDefaults to the chart's endpoint-auth Secret when left empty and a token is\nconfigured. When this monitor uses another namespace, mirror the Secret\nthere because the operator resolves it from the monitor namespace.",
+          "required": [],
+          "title": "bearerTokenSecret"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Whether to create a ServiceMonitor",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "honorLabels": {
+          "default": false,
+          "description": "Honor labels",
+          "title": "honorLabels",
+          "type": "boolean"
+        },
+        "interval": {
+          "default": "30s",
+          "description": "Scrape interval",
+          "title": "interval",
+          "type": "string"
+        },
+        "labels": {
+          "additionalProperties": true,
+          "description": "Additional labels for the ServiceMonitor",
+          "required": [],
+          "title": "labels"
+        },
+        "metricRelabelings": {
+          "description": "ca:\n  secret:\n    name: github-sts-tls\n    key: ca.crt\nserverName: github-sts.example.com\nMetric relabeling configs",
+          "items": {
+            "required": []
+          },
+          "title": "metricRelabelings",
+          "type": "array"
+        },
+        "namespace": {
+          "default": "",
+          "description": "Namespace where the ServiceMonitor should be created (defaults to release namespace)",
+          "title": "namespace",
+          "type": "string"
+        },
+        "path": {
+          "default": "/metrics",
+          "description": "Path to scrape metrics from",
+          "title": "path",
+          "type": "string"
+        },
+        "relabelings": {
+          "description": "Relabeling configs",
+          "items": {
+            "required": []
+          },
+          "title": "relabelings",
+          "type": "array"
+        },
+        "scheme": {
+          "default": "",
+          "description": "name: my-github-sts-endpoint-auth\nkey: metrics-auth-token\nScrape scheme. Empty means auto: `https` when `tls.enabled`, else\n`http`. Set explicitly only when something outside the chart (a mesh\nsidecar terminating TLS, for example) changes what the scraper sees.",
+          "title": "scheme",
+          "type": "string"
+        },
+        "scrapeTimeout": {
+          "default": "10s",
+          "description": "Scrape timeout",
+          "title": "scrapeTimeout",
+          "type": "string"
+        },
+        "tlsConfig": {
+          "additionalProperties": true,
+          "description": "`tlsConfig` for the scrape endpoint. When `tls.enabled` is true and this\nis empty, the chart emits `insecureSkipVerify: true`, because Prometheus\nconnects to a Pod IP that a normal serving certificate has no SAN for.\nThat encrypts the scrape without authenticating the target — supply `ca` /\n`caFile` plus `serverName` to verify it properly, and `cert` + `keySecret`\nas well when `tls.clientAuth.enabled` is on, or scrapes will be rejected.",
+          "required": [],
+          "title": "tlsConfig"
+        }
+      },
+      "required": [],
+      "title": "serviceMonitor",
+      "type": "object"
+    },
+    "terminationGracePeriodSeconds": {
+      "default": 30,
+      "description": "Pod terminationGracePeriodSeconds. Time the kubelet waits between SIGTERM\nand SIGKILL during pod shutdown. Must comfortably exceed\n`server.shutdownTimeout` (default 10s) plus probe drain time so in-flight\n`/sts/exchange` requests can complete before the container is killed.\nSetting this too low drops connections during rolling updates and node\ndrains; setting it very high slows down voluntary disruptions but does not\naffect normal pod startup.",
+      "title": "terminationGracePeriodSeconds",
+      "type": "integer"
+    },
+    "tests": {
+      "additionalProperties": false,
+      "description": "`helm test` hook pods (health, readiness, metrics checks)",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Render the `helm test` hook pods. Automatically skipped when\n`tls.clientAuth.enabled` is true, since the probe pods have no client\ncertificate to present and every request would be rejected at the\nhandshake.",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "image": {
+          "default": "busybox:1.37",
+          "description": "Image the test pods run. The test script uses `curl` when the image\nprovides it and falls back to `wget`, so a curl image can be dropped in as\nis. Override the default when `tls.minVersion` is `\"1.3\"`: BusyBox's\nbuilt-in TLS stack only speaks TLS 1.2 and the handshake would fail.",
+          "title": "image",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "tests",
+      "type": "object"
+    },
+    "tls": {
+      "additionalProperties": false,
+      "description": "Native TLS / mTLS served by github-sts itself. This is deliberately separate\nfrom `ingress.tls`, which terminates TLS at the ingress controller and then\nforwards plain HTTP to the pod. Enable this block when the hop between the\nproxy and the pod must also be encrypted (Gateway API `BackendTLSPolicy`, a\nre-encrypting service mesh, PCI/FedRAMP-style \"encryption in transit\neverywhere\" rules), when nothing fronts the Service at all, or when clients\nmust authenticate with a certificate (mTLS).\n\nRequires a github-sts image that understands the `server.tls` config section.\nOlder images ignore it silently and keep serving plain HTTP, which then fails\nthe HTTPS probes this block turns on — check the app version before enabling.",
+      "properties": {
+        "certKey": {
+          "default": "tls.crt",
+          "description": "Key inside `existingSecret` holding the PEM certificate chain.",
+          "title": "certKey",
+          "type": "string"
+        },
+        "cipherSuites": {
+          "description": "TLS 1.2 cipher suite allow-list, as IANA names\n(e.g. `TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256`). Empty means the Go\ndefaults: ECDHE key exchange throughout, AES-GCM and ChaCha20-Poly1305\npreferred, but AES-CBC with a SHA-1 MAC still accepted. Pin the list when\nthat last part is not acceptable. Must be empty when `minVersion` is\n`\"1.3\"`, where suites are not configurable and the application rejects the\ncombination at startup.",
+          "items": {
+            "required": []
+          },
+          "title": "cipherSuites",
+          "type": "array"
+        },
+        "clientAuth": {
+          "additionalProperties": false,
+          "description": "Mutual TLS: require and verify a client certificate on every connection.",
+          "properties": {
+            "caKey": {
+              "default": "ca.crt",
+              "description": "Key inside the CA Secret holding the PEM CA bundle.",
+              "title": "caKey",
+              "type": "string"
+            },
+            "enabled": {
+              "default": false,
+              "description": "Require every client to present a certificate signed by the CA bundle\nin `clientAuth.caKey`. Verification is enforced for the whole listener — `/health`,\n`/ready` and `/metrics` included — so the chart switches the kubelet\nprobes to `tcpSocket` (the kubelet cannot present a client certificate)\nand skips the `helm test` hooks. Prometheus needs client credentials in\n`serviceMonitor.tlsConfig` / `podMonitor.tlsConfig` to keep scraping.",
+              "title": "enabled",
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "default": "",
+              "description": "Existing Secret holding the trusted client CA bundle. Defaults to\n`tls.existingSecret`, which is convenient when cert-manager writes\n`ca.crt` alongside the serving cert. Point it at a separate Secret when\nthe client CA is a different trust root than the serving CA.",
+              "title": "existingSecret",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "clientAuth",
+          "type": "object"
+        },
+        "enabled": {
+          "default": false,
+          "description": "Serve HTTPS directly from the pod. Switches the container port name to\n`https`, points the probes at the HTTPS scheme, and makes the chart mount\n`existingSecret` into the pod. Terminating at the ingress/Gateway remains\nthe simpler model; reach for this only when the extra hop matters.",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "existingSecret": {
+          "default": "",
+          "description": "Existing Secret holding the server certificate and private key. Required\nwhen `tls.enabled` is true. A standard `kubernetes.io/tls` Secret works as\nis (cert-manager, an internal PKI, or `kubectl create secret tls`); an\nOpaque Secret works too as long as `certKey` / `keyKey` name its keys. The\nchart never generates certificates — a self-signed cert is a local-testing\ntool, not a deployment target.",
+          "title": "existingSecret",
+          "type": "string"
+        },
+        "keyKey": {
+          "default": "tls.key",
+          "description": "Key inside `existingSecret` holding the PEM private key.",
+          "title": "keyKey",
+          "type": "string"
+        },
+        "minVersion": {
+          "default": 1.2,
+          "description": "Minimum accepted TLS version: `\"1.2\"` or `\"1.3\"`. Raise to `\"1.3\"` when\nevery client supports it: the suites stop being configurable and the\nTLS 1.2 negotiation surface goes away, at the cost of rejecting older\nclients outright.",
+          "required": [],
+          "title": "minVersion",
+          "type": [
+            "string",
+            "number"
+          ]
+        },
+        "mountPath": {
+          "default": "/etc/github-sts-tls",
+          "description": "Directory the certificate material is mounted at. A directory of its\nown by default, which keeps it out of `/etc/github-sts`, where the config\nConfigMap and the per-app key mounts already live. Any path the container\ndoes not already use works.",
+          "title": "mountPath",
+          "type": "string"
+        },
+        "reloadInterval": {
+          "default": "",
+          "description": "- TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256\n- TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384\n- TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256\n- TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384\nCertificate hot-reload poll interval (Go duration string, e.g. `\"1h\"`).\nEmpty or `\"0\"` disables it. Kubernetes updates a mounted Secret in place on\nrenewal, so without polling a cert-manager rotation only takes effect at\nthe next pod restart. Set this to something well under the renewal window\n(cert-manager renews at 2/3 of lifetime by default) for rotation without a\nrollout.",
+          "title": "reloadInterval",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "tls",
+      "type": "object"
+    },
+    "tolerations": {
+      "description": "Tolerations",
+      "items": {
+        "required": []
+      },
+      "title": "tolerations",
+      "type": "array"
+    },
+    "topologySpreadConstraints": {
+      "description": "Topology spread constraints",
+      "items": {
+        "required": []
+      },
+      "title": "topologySpreadConstraints",
+      "type": "array"
+    },
+    "tracing": {
+      "additionalProperties": false,
+      "description": "Distributed tracing (OpenTelemetry). Off by default.\n\nSpans need github-sts 0.1.2 or later, which is what this chart's `appVersion`\npins. 0.1.1 accepts the same settings and starts the exporter, but emits no\nspans.\n\nAn image predating the `tracing:` config key rejects it outright — the server\ndecodes its config with KnownFields(true) — but the chart omits the whole\nsection when `enabled` is false, so a pinned older `image.tag` stays safe.\n\nWhat the server emits: one root server span per request, by the\nhandler that sits outermost in the middleware chain. The span is named by\nroute — \"POST /sts/exchange\", never the raw path, because a path carries\nrepository names and would make span names unbounded — and carries\n`http.route` plus roughly thirty `sts.*` and `github.*` attributes: app and\ninstance, scope, identity, result, OIDC issuer and subject, source and target\nrepository, the four-set permission chain, policy provenance, the bundle\ndecision, client address and user agent. They are built from the same audit\nevent as the audit line, at the one point every exit path of the handler\nfunnels through, so a span and its audit record cannot drift apart.\n\nEach stage of an exchange is a child of that root span, so a slow exchange\nshows where the time went: `sts.oidc.validate`, `sts.jti.reserve`,\n`github.target.resolve`, `sts.policy.load`, `sts.policy.evaluate`,\n`sts.bundle.evaluate` and `sts.token.issue`, among others. GitHub work nests\nbelow them (`github.app_pool.attempt`, then `github.token.mint`), and the\noutbound requests to GitHub, OIDC discovery and JWKS carry OpenTelemetry HTTP\nclient spans. A stage that never ran, because an earlier one rejected the\nrequest, has no span.\n\nA policy denial leaves the span status Unset rather than Error — a denial is\na working broker doing its job, and marking it Error would make span-derived\nerror rates track how often the trust policy fired. The outcome lives in the\n`sts.result` attribute instead. Error is reserved for a cache fault, an\nupstream GitHub error, and the bundle conditions that fail closed with a 503.\n\nProbe and scrape paths (/health, /ready, /healthz, /readyz, /metrics) are\nfiltered and produce no spans, so a one-second kubelet probe cannot outnumber\nreal exchanges in the backend. An inbound traceparent is honoured rather than\nreplaced, so an exchange joins the calling workflow's trace.\n\nNote that `trace_id` is 32 hex characters from v0.1.1 onward whether or not\nthis is enabled; the widening came with the image, not with this setting.\n\nTwo lines turn export on:\n  tracing.enabled=true\n  tracing.endpoint=otel-collector.observability:4317\n\nTraces are sampled diagnostics, not an audit trail: the audit log stays the\nsystem of record for authorization decisions.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "description": "Export OTLP traces to `tracing.endpoint`. When false the server installs\na no-op tracer, so instrumentation costs effectively nothing.",
+          "title": "enabled",
+          "type": "boolean"
+        },
+        "endpoint": {
+          "default": "",
+          "description": "Collector address as bare `host:port` — no scheme. The server passes\nthis to the OTLP exporter's `WithEndpoint`, which does not parse URLs, so\n`http://collector:4317` fails at export time rather than at startup; the\nchart rejects it during rendering instead. The protocol default port\n(4317 for grpc, 4318 for http) is appended when you omit one. Use\n`localhost:4317` for a collector running as a sidecar. Required when\n`tracing.enabled` is true. An IPv6 literal must carry its own brackets and\nport, e.g. `[::1]:4317`.",
+          "title": "endpoint",
+          "type": "string"
+        },
+        "environment": {
+          "default": "",
+          "description": "`deployment.environment` resource attribute (e.g. `staging`, `prod`).\nOmitted from the config when empty.",
+          "title": "environment",
+          "type": "string"
+        },
+        "headersSecret": {
+          "additionalProperties": false,
+          "description": "Authentication headers for a collector that requires them. These are\ncredentials, so the chart passes them through the environment as\n`OTEL_EXPORTER_OTLP_HEADERS` instead of rendering them into the ConfigMap,\nwhich is readable by anyone holding `get configmaps` in the namespace. The\nserver leaves its own `headers` field unset, which is what lets the\nstandard OTEL variable take effect.",
+          "properties": {
+            "key": {
+              "default": "otlp-headers",
+              "description": "Key inside `headersSecret.name`. The value uses OTLP header syntax:\ncomma-separated `key=value` pairs, e.g. `api-key=abc,x-tenant=acme`.",
+              "title": "key",
+              "type": "string"
+            },
+            "name": {
+              "default": "",
+              "description": "Existing Secret holding the header string. Empty disables the\nenvironment variable entirely.",
+              "title": "name",
+              "type": "string"
+            }
+          },
+          "required": [],
+          "title": "headersSecret",
+          "type": "object"
+        },
+        "insecure": {
+          "default": true,
+          "description": "Export over plaintext. Defaults to true because the deployment this is\nbuilt for is a hop to an in-cluster collector on the pod network, where\nthere is no certificate to verify and TLS would only fail the handshake.\nSet to false when exporting straight to a vendor endpoint over the\ninternet, and pair it with `tracing.headersSecret` for the API key.",
+          "title": "insecure",
+          "type": "boolean"
+        },
+        "protocol": {
+          "default": "grpc",
+          "description": "OTLP transport: `grpc` (default) or `http`.",
+          "title": "protocol",
+          "type": "string"
+        },
+        "sampleRatio": {
+          "default": 1,
+          "description": "Head sampling ratio between 0 and 1, applied `ParentBased` so an\ninbound sampling decision is respected. Keep this at 1.0 and tail-sample in\nthe Collector instead: the exchange result is not known when a head sampler\nruns, so sampling down here throws away denials and failovers at random —\nexactly the traces worth keeping for a security broker.",
+          "pattern": "^-?[0-9]+(\\.[0-9]+)?$",
+          "required": [],
+          "title": "sampleRatio",
+          "type": [
+            "number",
+            "string"
+          ]
+        },
+        "serviceName": {
+          "default": "",
+          "description": "`service.name` resource attribute. Empty uses the server's own default,\n`github-sts`. Override it when two releases export to the same tracing\nbackend and need to be told apart; leaving it alone keeps the value that\nshipped dashboards and alerts key on.",
+          "title": "serviceName",
+          "type": "string"
+        },
+        "timeout": {
+          "default": "10s",
+          "description": "Per-export timeout (Go duration string). Note that this always wins over\n`OTEL_EXPORTER_OTLP_TIMEOUT`, which the server never consults.",
+          "title": "timeout",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "title": "tracing",
+      "type": "object"
+    }
+  },
+  "required": [],
+  "type": "object"
+}
