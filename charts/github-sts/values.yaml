@@ -1,11 +1,50 @@
 # Default values for github-sts Helm chart
 # This is a YAML-formatted file.
 # Declare variables to be passed into your templates.
+#
+# The `# @schema` blocks are read by helm-schema, which generates
+# values.schema.json from this file (`make schema`); never edit that file by
+# hand. The `@schema.root` block below rejects a pool on
+# `rotation.strategy: rate_limit_aware` while `metrics.rateLimitPoll.enabled`
+# is false: that pool would route on quota readings from github-sts's own
+# GitHub calls only, so a member drained by client tokens is noticed late or
+# not at all.
 
+# @schema.root
+# allOf:
+#   - if:
+#       required: [github]
+#       properties:
+#         github:
+#           required: [apps]
+#           properties:
+#             apps:
+#               not:
+#                 additionalProperties:
+#                   not:
+#                     required: [rotation]
+#                     properties:
+#                       rotation:
+#                         required: [strategy]
+#                         properties:
+#                           strategy:
+#                             const: rate_limit_aware
+#     then:
+#       properties:
+#         metrics:
+#           properties:
+#             rateLimitPoll:
+#               properties:
+#                 enabled:
+#                   const: true
+# @schema.root
 # -- Override the chart name
 nameOverride: ""
 # -- Override the full release name
 fullnameOverride: ""
+# @schema
+# additionalProperties: true
+# @schema
 # -- Labels to add to all deployed objects
 commonLabels: {}
 
@@ -37,6 +76,9 @@ image:
   registry: ghcr.io
   # -- Image repository
   repository: depthmark/github-sts
+  # @schema
+  # type: [string, number]
+  # @schema
   # -- Image tag (defaults to Chart.appVersion). Ignored when `digest` is set.
   tag: ""
   # -- Image digest in `sha256:<hex>` form. When set, the chart renders
@@ -47,6 +89,9 @@ image:
   # cannot. Use `crane digest <image:tag>` (or `docker buildx imagetools
   # inspect`) to resolve a tag to its digest before setting this.
   digest: ""
+  # @schema
+  # enum: [Always, IfNotPresent, Never]
+  # @schema
   # -- Image pull policy. With a tag pull, `IfNotPresent` is fine; with a
   # digest pull, the kubelet treats the digest as immutable and skips re-pull
   # regardless of policy.
@@ -60,6 +105,9 @@ imagePullSecrets: []
 serviceAccount:
   # -- Whether to create a service account
   create: true
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Annotations to add to the service account
   annotations: {}
   # -- Name of the service account (defaults to fullname)
@@ -69,6 +117,9 @@ serviceAccount:
 
 # Service configuration
 service:
+  # @schema
+  # enum: [ClusterIP, NodePort, LoadBalancer, ExternalName]
+  # @schema
   # -- Service type
   type: ClusterIP
   # -- Service port
@@ -82,6 +133,9 @@ service:
   # (e.g. `nginx.ingress.kubernetes.io/backend-protocol: HTTPS`) still needs
   # that annotation set as well.
   appProtocol: ""
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Service annotations
   annotations: {}
 
@@ -91,6 +145,9 @@ ingress:
   enabled: false
   # -- Ingress class name
   className: ""
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Ingress annotations
   annotations: {}
     # cert-manager.io/cluster-issuer: "letsencrypt-prod"
@@ -115,6 +172,9 @@ ingress:
 httproute:
   # -- Enable HTTPRoute
   enabled: false
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- HTTPRoute annotations
   annotations: {}
   # -- Gateway parent references
@@ -189,6 +249,9 @@ networkPolicy:
   # kinds are enabled. Required for any FQDN/external lookup to resolve.
   allowKubeDns: true
 
+# @schema
+# additionalProperties: true
+# @schema
 # -- Resource requests and limits
 resources: {}
   # limits:
@@ -203,15 +266,27 @@ pdb:
   # -- Create a PodDisruptionBudget. Recommended whenever replicaCount > 1 or
   # autoscaling is enabled, so a node drain cannot evict every replica at once.
   enabled: true
+  # @schema
+  # type: [integer, string, "null"]
+  # @schema
   # -- Minimum number of pods that must remain available during a voluntary
   # disruption. Mutually exclusive with maxUnavailable. Defaults to 1 when
   # neither field is set.
   minAvailable: 1
+  # @schema
+  # type: [integer, string, "null"]
+  # default: null
+  # @schema
   # -- Maximum number of pods that may be unavailable during a voluntary
   # disruption. Set this OR minAvailable, not both.
   maxUnavailable: ~
 
 # Autoscaling configuration
+# @schema
+# patternProperties:
+#   "^targetMemoryUtilizationPercentage$":
+#     type: integer
+# @schema
 autoscaling:
   # -- Enable Horizontal Pod Autoscaler
   enabled: false
@@ -222,6 +297,9 @@ autoscaling:
   # -- Target CPU utilization percentage
   targetCPUUtilizationPercentage: 80
   # targetMemoryUtilizationPercentage: 80
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- HPA scaling behavior (autoscaling/v2 `behavior` block). Tune scale-up
   # and scale-down stabilization windows / policies to add backpressure when a
   # webhook flood would otherwise saturate the existing replicas. Empty by
@@ -304,6 +382,9 @@ probes:
     failureThreshold: 3
 
 # Pod security context (distroless nonroot image uses uid 65534)
+# @schema
+# additionalProperties: true
+# @schema
 podSecurityContext:
   # -- Require non-root user
   runAsNonRoot: true
@@ -318,21 +399,33 @@ podSecurityContext:
   runAsGroup: 65534
   # -- Filesystem group
   fsGroup: 65534
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Seccomp profile applied to all containers in the pod
   seccompProfile:
     type: RuntimeDefault
 
 # Container security context
+# @schema
+# additionalProperties: true
+# @schema
 securityContext:
   # -- Disallow privilege escalation
   allowPrivilegeEscalation: false
   # -- Read-only root filesystem
   readOnlyRootFilesystem: true
   # Linux capabilities configuration
+  # @schema
+  # additionalProperties: true
+  # @schema
   capabilities:
     # -- Linux capabilities to drop
     drop:
       - ALL
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Seccomp profile for the container (overrides pod-level profile)
   seccompProfile:
     type: RuntimeDefault
@@ -377,6 +470,9 @@ tls:
   # ConfigMap and the per-app key mounts already live. Any path the container
   # does not already use works.
   mountPath: "/etc/github-sts-tls"
+  # @schema
+  # type: [string, number]
+  # @schema
   # -- Minimum accepted TLS version: `"1.2"` or `"1.3"`. Raise to `"1.3"` when
   # every client supports it: the suites stop being configurable and the
   # TLS 1.2 negotiation surface goes away, at the cost of rejecting older
@@ -420,6 +516,10 @@ tls:
 
 # Logging configuration
 logging:
+  # @schema
+  # type: string
+  # pattern: "^([Dd][Ee][Bb][Uu][Gg]|[Ii][Nn][Ff][Oo]|[Ww][Aa][Rr][Nn]|[Ee][Rr][Rr][Oo][Rr])$"
+  # @schema
   # -- Application log level (debug | info | warn | error)
   level: "info"
   # -- Suppress health/ready/metrics access logs
@@ -433,6 +533,9 @@ policy:
   cacheTtl: "60s"
 
 # Enterprise Rego/OPA policy bundles
+# @schema
+# enum: [optional, required]
+# @schema
 # -- Bundle enforcement mode: `optional` or `required`. The server requires a
 # valid value here and refuses to start without one, so the chart always
 # renders it. `optional` evaluates whatever `bundles` lists and falls back to
@@ -505,6 +608,12 @@ oidc:
   # misconfigured or permissive policy file cannot accept tokens minted
   # for an unrelated relying party.
   requiredAudience: ""
+  # @schema
+  # additionalProperties:
+  #   type: array
+  #   items:
+  #     type: string
+  # @schema
   # -- Per-issuer JWKS host overrides. Default behavior pins the JWKS
   # `Host` header to the issuer host (so a malicious DNS answer for the
   # issuer cannot redirect signing-key fetches elsewhere). This map is the
@@ -527,6 +636,9 @@ oidc:
 
 # JTI replay prevention
 jti:
+  # @schema
+  # enum: [memory, redis]
+  # @schema
   # -- Backend: "memory" or "redis"
   backend: "memory"
   # -- Required if backend=redis
@@ -599,6 +711,9 @@ metrics:
     # -- Probe interval (Go duration string). Only the first probe per token
     # spends a request; later ones are answered with a free `304 Not Modified`.
     interval: "60s"
+    # @schema
+    # type: [string, number]
+    # @schema
     # -- Longest a probe may answer from a cached `304` before it pays for a
     # counted read again (Go duration string). A `304` carries no usable
     # reading for an installation token, so this bounds how stale the quota
@@ -621,8 +736,14 @@ serviceMonitor:
   enabled: false
   # -- Namespace where the ServiceMonitor should be created (defaults to release namespace)
   namespace: ""
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Additional labels for the ServiceMonitor
   labels: {}
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Annotations for the ServiceMonitor
   annotations: {}
   # -- Scrape interval
@@ -631,6 +752,9 @@ serviceMonitor:
   scrapeTimeout: 10s
   # -- Path to scrape metrics from
   path: /metrics
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Secret holding the bearer token Prometheus presents when scraping.
   # Required once `endpointAuth.metricsToken` is set, or scrapes return 401.
   # Defaults to the chart's endpoint-auth Secret when left empty and a token is
@@ -643,6 +767,9 @@ serviceMonitor:
   # `http`. Set explicitly only when something outside the chart (a mesh
   # sidecar terminating TLS, for example) changes what the scraper sees.
   scheme: ""
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- `tlsConfig` for the scrape endpoint. When `tls.enabled` is true and this
   # is empty, the chart emits `insecureSkipVerify: true`, because Prometheus
   # connects to a Pod IP that a normal serving certificate has no SAN for.
@@ -668,8 +795,14 @@ podMonitor:
   enabled: false
   # -- Namespace where the PodMonitor should be created (defaults to release namespace)
   namespace: ""
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Additional labels for the PodMonitor
   labels: {}
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Annotations for the PodMonitor
   annotations: {}
   # -- Scrape interval
@@ -678,6 +811,9 @@ podMonitor:
   scrapeTimeout: 10s
   # -- Path to scrape metrics from
   path: /metrics
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- Secret holding the bearer token Prometheus presents when scraping.
   # Required once `endpointAuth.metricsToken` is set, or scrapes return 401.
   # Defaults to the chart's endpoint-auth Secret when left empty and a token is
@@ -690,6 +826,9 @@ podMonitor:
   # `http`. Set explicitly only when something outside the chart (a mesh
   # sidecar terminating TLS, for example) changes what the scraper sees.
   scheme: ""
+  # @schema
+  # additionalProperties: true
+  # @schema
   # -- `tlsConfig` for the scrape endpoint. When `tls.enabled` is true and this
   # is empty, the chart emits `insecureSkipVerify: true`, because Prometheus
   # connects to a Pod IP that a normal serving certificate has no SAN for.
@@ -780,6 +919,10 @@ tracing:
   # Set to false when exporting straight to a vendor endpoint over the
   # internet, and pair it with `tracing.headersSecret` for the API key.
   insecure: true
+  # @schema
+  # type: [number, string]
+  # pattern: '^-?[0-9]+(\.[0-9]+)?$'
+  # @schema
   # -- Head sampling ratio between 0 and 1, applied `ParentBased` so an
   # inbound sampling decision is respected. Keep this at 1.0 and tail-sample in
   # the Collector instead: the exchange result is not known when a head sampler
@@ -815,6 +958,10 @@ tracing:
 rateLimit:
   # -- Enable per-IP rate limiting
   enabled: false
+  # @schema
+  # type: [number, string]
+  # pattern: '^-?[0-9]+(\.[0-9]+)?$'
+  # @schema
   # -- Requests per second per IP
   rate: 10
   # -- Maximum burst size per IP
@@ -848,6 +995,47 @@ rateLimit:
 # anything alongside `orgPolicyRepo`, and the server defaults it to `org_first`
 # whenever one is set.
 github:
+  # @schema
+  # additionalProperties:
+  #   type: object
+  #   additionalProperties: false
+  #   properties:
+  #     appId:
+  #       type: [integer, string]
+  #     existingSecret:
+  #       type: string
+  #     secretPrivateKeyKey:
+  #       type: string
+  #     orgPolicyRepo:
+  #       type: string
+  #     policyResolution:
+  #       type: string
+  #     instances:
+  #       type: array
+  #       items:
+  #         type: object
+  #         additionalProperties: false
+  #         properties:
+  #           name:
+  #             type: [string, integer]
+  #           appId:
+  #             type: [integer, string]
+  #           existingSecret:
+  #             type: string
+  #           secretPrivateKeyKey:
+  #             type: string
+  #     rotation:
+  #       type: object
+  #       additionalProperties: false
+  #       properties:
+  #         strategy:
+  #           type: string
+  #         minRemainingPct:
+  #           type: [number, string]
+  #           pattern: '^-?[0-9]+(\.[0-9]+)?$'
+  #         maxAttempts:
+  #           type: integer
+  # @schema
   # -- GitHub Apps map. At least one app must be configured.
   # @default -- `{}`
   apps: {}
@@ -891,18 +1079,30 @@ github:
   #     # and repository access — the server treats them as interchangeable and
   #     # does not verify that they are.
 
+# @schema
+# additionalProperties: true
+# @schema
 # -- Additional pod annotations
 podAnnotations: {}
 
+# @schema
+# additionalProperties: true
+# @schema
 # -- Additional pod labels
 podLabels: {}
 
+# @schema
+# additionalProperties: true
+# @schema
 # -- Node selector
 nodeSelector: {}
 
 # -- Tolerations
 tolerations: []
 
+# @schema
+# additionalProperties: true
+# @schema
 # -- Affinity rules
 affinity: {}
 

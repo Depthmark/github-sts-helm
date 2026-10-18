@@ -3,6 +3,21 @@
 # verifies that the published documentation still matches the chart. Both run
 # in CI as well; this hook is what keeps a commit from needing that round trip.
 repos:
+  # values.schema.json is generated the same way: helm-schema rebuilds it from
+  # the `# @schema` blocks in values.yaml. The hook builds helm-schema from
+  # source at `rev`, so Go has to be on PATH. The args repeat HELM_SCHEMA_FLAGS
+  # in the Makefile; keep the two in step.
+  - repo: https://github.com/dadav/helm-schema
+    rev: 0.23.5
+    hooks:
+      - id: helm-schema
+        pass_filenames: false
+        args:
+          - --chart-search-root=charts
+          - --skip-auto-generation=required
+          - --no-dependencies
+          - --append-newline
+
   - repo: https://github.com/norwoodj/helm-docs
     rev: v1.14.2
     hooks:

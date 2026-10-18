@@ -51,6 +51,31 @@ jobs:
           fi
           echo "README.md is up to date."
 
+  helm-schema:
+    name: Helm Schema
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same version as the prek hook in .pre-commit-config.yaml.
+      - name: Install helm-schema
+        env:
+          HELM_SCHEMA_VERSION: "0.23.5"
+        run: |
+          ARCHIVE="helm-schema_${HELM_SCHEMA_VERSION}_Linux_x86_64.tar.gz"
+          curl -sSLO "https://github.com/dadav/helm-schema/releases/download/${HELM_SCHEMA_VERSION}/${ARCHIVE}"
+          curl -sSLO "https://github.com/dadav/helm-schema/releases/download/${HELM_SCHEMA_VERSION}/checksums.txt"
+          grep " ${ARCHIVE}\$" checksums.txt | sha256sum -c -
+          tar xzf "${ARCHIVE}" -C /usr/local/bin helm-schema
+
+      - name: Verify values.schema.json is up to date
+        run: make schema-check
+
   helm-lint:
     name: Helm Lint
     runs-on: ubuntu-latest
