@@ -18,8 +18,12 @@ github:
           secretPrivateKeyKey: "private-key.pem"
         - appId: 333333
           existingSecret: "checkout-3-credentials"
+      # rate_limit_aware with a threshold, so the server has to accept every
+      # rotation key the chart can render; round_robin is the default path
+      # that the release pool below takes.
       rotation:
-        strategy: round_robin
+        strategy: rate_limit_aware
+        minRemainingPct: 10
         maxAttempts: 2
     # A second pooled app with no rotation block, so the default-strategy path
     # renders too.
@@ -29,3 +33,9 @@ github:
           existingSecret: "release-1-credentials"
         - appId: 555555
           existingSecret: "release-2-credentials"
+
+# Set so the Kind pool job proves the server accepts the key; it is omitted
+# from the config unless a value is given.
+metrics:
+  rateLimitPoll:
+    forceCountedInterval: "2m"

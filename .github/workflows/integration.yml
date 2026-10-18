@@ -282,8 +282,10 @@ jobs:
           echo "$CONFIG" | grep -q 'private_key_path: "/etc/github-sts/apps/checkout/222222/private-key.pem"'
           echo "$CONFIG" | grep -q 'private_key_path: "/etc/github-sts/apps/checkout/333333/github-app-private-key"'
           echo "$CONFIG" | grep -q 'private_key_path: "/etc/github-sts/apps/default/github-app-private-key"'
-          echo "$CONFIG" | grep -q 'strategy: "round_robin"'
+          echo "$CONFIG" | grep -q 'strategy: "rate_limit_aware"'
+          echo "$CONFIG" | grep -q 'min_remaining_pct: 10'
           echo "$CONFIG" | grep -q 'max_attempts: 2'
+          echo "$CONFIG" | grep -q 'rate_limit_poll_force_counted_interval: "2m"'
           # policy_resolution is app-level, so it has to survive the pooled
           # branch of the apps loop as well as the flat one.
           echo "$CONFIG" | grep -q 'policy_resolution: "org_only"'

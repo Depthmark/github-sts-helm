@@ -590,10 +590,24 @@ metrics:
   authToken: ""
   # Rate limit polling configuration
   rateLimitPoll:
-    # -- Enable periodic polling of GitHub rate limit API
+    # -- Probe each pool member's installation rate limit bucket on a timer,
+    # with a conditional `GET /emojis` request. Feeds the
+    # `githubsts_github_rate_limit_*` gauges and the quota readings that
+    # `rotation.strategy: rate_limit_aware` routes on; with this off, those
+    # readings come only from github-sts's own GitHub calls.
     enabled: true
-    # -- Polling interval (Go duration string)
+    # -- Probe interval (Go duration string). Only the first probe per token
+    # spends a request; later ones are answered with a free `304 Not Modified`.
     interval: "60s"
+    # -- Longest a probe may answer from a cached `304` before it pays for a
+    # counted read again (Go duration string). A `304` carries no usable
+    # reading for an installation token, so this bounds how stale the quota
+    # view behind `rate_limit_aware` can get, at the cost of one spent request
+    # per instance each time it forces a read. `"0s"` makes every probe
+    # counted. Empty leaves the key out of the rendered config, so the
+    # server's own default (`5m`) applies and an image older than 0.1.2, which
+    # rejects the key, still starts.
+    forceCountedInterval: ""
   # Reachability probe configuration
   reachabilityProbe:
     # -- Enable periodic GitHub API reachability probing
@@ -697,19 +711,15 @@ podMonitor:
 
 # Distributed tracing (OpenTelemetry). Off by default.
 #
-# NO PUBLISHED RELEASE EMITS SPANS YET. The 0.1.1 this chart's `appVersion`
-# pins initializes the OTLP exporter and installs W3C propagation, but
-# registers no HTTP instrumentation, so enabling this block is
-# configuration-valid and exports nothing at all. The `otelhttp` handler that
-# opens the spans described below is on the server's main branch, unreleased.
-# Until `appVersion` moves to a release carrying it, treat everything under
-# "what the instrumented build emits" as a forward description.
+# Spans need github-sts 0.1.2 or later, which is what this chart's `appVersion`
+# pins. 0.1.1 accepts the same settings and starts the exporter, but emits no
+# spans.
 #
 # An image predating the `tracing:` config key rejects it outright — the server
 # decodes its config with KnownFields(true) — but the chart omits the whole
 # section when `enabled` is false, so a pinned older `image.tag` stays safe.
 #
-# What the instrumented build emits: one root server span per request, by the
+# What the server emits: one root server span per request, by the
 # handler that sits outermost in the middleware chain. The span is named by
 # route — "POST /sts/exchange", never the raw path, because a path carries
 # repository names and would make span names unbounded — and carries
@@ -719,6 +729,15 @@ podMonitor:
 # decision, client address and user agent. They are built from the same audit
 # event as the audit line, at the one point every exit path of the handler
 # funnels through, so a span and its audit record cannot drift apart.
+#
+# Each stage of an exchange is a child of that root span, so a slow exchange
+# shows where the time went: `sts.oidc.validate`, `sts.jti.reserve`,
+# `github.target.resolve`, `sts.policy.load`, `sts.policy.evaluate`,
+# `sts.bundle.evaluate` and `sts.token.issue`, among others. GitHub work nests
+# below them (`github.app_pool.attempt`, then `github.token.mint`), and the
+# outbound requests to GitHub, OIDC discovery and JWKS carry OpenTelemetry HTTP
+# client spans. A stage that never ran, because an earlier one rejected the
+# request, has no span.
 #
 # A policy denial leaves the span status Unset rather than Error — a denial is
 # a working broker doing its job, and marking it Error would make span-derived
@@ -731,14 +750,8 @@ podMonitor:
 # real exchanges in the backend. An inbound traceparent is honoured rather than
 # replaced, so an exchange joins the calling workflow's trace.
 #
-# What it does NOT do yet: per-stage child spans. One span per request means a
-# slow exchange is a slow span with its full authorization context, but the
-# latency is not broken down across OIDC validation, JTI reservation, policy
-# evaluation and the GitHub mint. That breakdown lands in a later release.
-#
 # Note that `trace_id` is 32 hex characters from v0.1.1 onward whether or not
 # this is enabled; the widening came with the image, not with this setting.
-# That part is already true of the pinned release.
 #
 # Two lines turn export on:
 #   tracing.enabled=true
