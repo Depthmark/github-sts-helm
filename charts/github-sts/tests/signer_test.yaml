@@ -1,0 +1,701 @@
+suite: Signer (App keys held in a key vault)
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - secret.yaml
+  - ciliumnetworkpolicy.yaml
+release:
+  name: test
+  namespace: github-sts
+tests:
+  # -------------------------------------------------------------------------
+  # ConfigMap
+  # -------------------------------------------------------------------------
+  - it: should render a flat entry's signer and its cloud identity in place of private_key_path
+    template: configmap.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'cloud_identities:\n\s+"vault-one":\n\s+azure:\n\s+client_id: "00000000-0000-0000-0000-000000000001"\n\s+tenant_id: "00000000-0000-0000-0000-000000000003"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'app_id: 12345\n\s+signer:\n\s+cloud_identity: "vault-one"\n\s+key_id: "https://stsexample\.vault\.azure\.net/keys/github-app-default"'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "private_key_path|provider:"
+
+  - it: should render each pool instance's signer, each with its own identity
+    template: configmap.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+        vault-two:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000002"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        checkout:
+          instances:
+            - name: checkout-1
+              appId: 111111
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1"
+            - appId: 222222
+              signer:
+                cloudIdentity: vault-two
+                keyId: "https://stsother.vault.azure.net/keys/checkout-2/0123456789abcdef"
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: "checkout-1"\n\s+app_id: 111111\n\s+signer:\n\s+cloud_identity: "vault-one"\n\s+key_id: "https://stsexample\.vault\.azure\.net/keys/checkout-1"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '- name: "222222"\n\s+app_id: 222222\n\s+signer:\n\s+cloud_identity: "vault-two"\n\s+key_id: "https://stsother\.vault\.azure\.net/keys/checkout-2/0123456789abcdef"'
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: '"vault-two":\n\s+azure:\n\s+client_id: "00000000-0000-0000-0000-000000000002"'
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "private_key_path"
+
+  - it: should render neither a signer nor cloud identities for a release on Secrets
+    template: configmap.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "signer:|cloud_identities:"
+
+  # -------------------------------------------------------------------------
+  # Deployment
+  # -------------------------------------------------------------------------
+  - it: should mount no key volume for an app whose keys stay in the vault
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+        checkout:
+          instances:
+            - appId: 111111
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1"
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: github-app-default-key
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: github-app-checkout-key
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: github-app-default-key
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: github-app-checkout-key
+          any: true
+
+  - it: should project one federated token and set only its path
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+        vault-two:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000002"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+        settings:
+          appId: 67890
+          signer:
+            cloudIdentity: vault-two
+            keyId: "https://stsother.vault.azure.net/keys/github-app-settings"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_FEDERATED_TOKEN_FILE
+            value: /var/run/secrets/github-sts-azure/token
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: azure-federated-token
+            projected:
+              sources:
+                - serviceAccountToken:
+                    audience: api://AzureADTokenExchange
+                    expirationSeconds: 3600
+                    path: token
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: azure-federated-token
+            mountPath: /var/run/secrets/github-sts-azure
+            readOnly: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_TOKEN_CREDENTIALS
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_CLIENT_ID
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_TENANT_ID
+          any: true
+
+  - it: should keep the Kubernetes API token out of the pod
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+
+  - it: should project no token for a release on Secrets
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AZURE_FEDERATED_TOKEN_FILE
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            name: azure-federated-token
+          any: true
+
+  # -------------------------------------------------------------------------
+  # Validation: key source
+  # -------------------------------------------------------------------------
+  - it: should accept a pinned key version, a trailing slash and a Managed HSM key
+    template: configmap.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1/0123456789abcdef/"
+            - appId: 222222
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.managedhsm.azure.net/keys/checkout-2"
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should fail when an entry sets both existingSecret and signer
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "github\\.apps\\.default: existingSecret/secretPrivateKeyKey and signer are mutually exclusive"
+
+  - it: should fail when secretPrivateKeyKey sits beside a signer
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          secretPrivateKeyKey: "private-key.pem"
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "existingSecret/secretPrivateKeyKey and signer are mutually exclusive"
+
+  - it: should fail when a pool instance sets both existingSecret and signer
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          instances:
+            - name: checkout-1
+              appId: 111111
+              existingSecret: "checkout-1-credentials"
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1"
+    asserts:
+      - failedTemplate:
+          errorPattern: "github\\.apps\\.checkout: instance checkout-1: existingSecret/secretPrivateKeyKey and signer are mutually exclusive"
+
+  - it: should fail when an entry sets a signer and instances
+    template: deployment.yaml
+    set:
+      github.apps:
+        checkout:
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/checkout"
+          instances:
+            - appId: 111111
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1"
+    asserts:
+      - failedTemplate:
+          errorPattern: "appId/existingSecret/secretPrivateKeyKey/signer and instances are mutually exclusive"
+
+  - it: should fail when a signer names no cloud identity
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "github\\.apps\\.default: signer\\.cloudIdentity is required"
+
+  - it: should fail when a signer has no keyId
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+    asserts:
+      - failedTemplate:
+          errorPattern: "github\\.apps\\.default: signer\\.keyId is required"
+
+  - it: should fail when a signer names an identity that is not defined
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        checkout:
+          instances:
+            - name: checkout-1
+              appId: 111111
+              signer:
+                cloudIdentity: vault-three
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'github\.apps\.checkout: instance checkout-1: signer\.cloudIdentity "vault-three" is not defined in cloudIdentities \(defined: vault-one\)'
+
+  - it: should fail when a signer names an identity and cloudIdentities is empty
+    template: deployment.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'signer\.cloudIdentity "vault-one" is not defined: cloudIdentities is empty'
+
+  - it: should fail on a keyId over plain http
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "http://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "signer\\.keyId must be a Key Vault key URL"
+
+  - it: should fail on a keyId naming a secret instead of a key
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/secrets/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "signer\\.keyId must be a Key Vault key URL"
+
+  - it: should fail on a keyId with a query string
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default?api-version=7.4"
+    asserts:
+      - failedTemplate:
+          errorPattern: "signer\\.keyId must be a Key Vault key URL"
+
+  - it: should fail when one app signs in a vault and another mounts a PEM
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        ci:
+          appId: 12345
+          existingSecret: "github-app-ci-credentials"
+        release:
+          appId: 67890
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-release"
+    asserts:
+      - failedTemplate:
+          errorPattern: "never a mix: github\\.apps\\.release instance 67890 uses signer, github\\.apps\\.ci instance 12345 uses existingSecret"
+
+  - it: should fail on a mix inside one pool
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        checkout:
+          instances:
+            - name: checkout-1
+              appId: 111111
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1"
+            - name: checkout-2
+              appId: 222222
+              existingSecret: "checkout-2-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "never a mix: github\\.apps\\.checkout instance checkout-1 uses signer, github\\.apps\\.checkout instance checkout-2 uses existingSecret"
+
+  # -------------------------------------------------------------------------
+  # Validation: cloud identities
+  # -------------------------------------------------------------------------
+  - it: should fail on an identity no signer names
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+        vault-two:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000002"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "cloudIdentities\\.vault-two: no signer names this identity"
+
+  - it: should fail on an identity beside a release on Secrets
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - failedTemplate:
+          errorPattern: "cloudIdentities\\.vault-one: no signer names this identity"
+
+  - it: should fail on a client ID that is not a GUID
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "id-github-sts-dev"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'cloudIdentities\.vault-one: azure\.clientId must be the client ID of a user-assigned managed identity, a GUID \(got "id-github-sts-dev"\)'
+
+  - it: should fail on a tenant ID that is not a GUID
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "stsexample.onmicrosoft.com"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'cloudIdentities\.vault-one: azure\.tenantId must be a Microsoft Entra tenant ID, a GUID'
+
+  - it: should fail on an identity name that is not a label value
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        "vault one":
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: "vault one"
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "cloudIdentities\\.vault one: the name must be"
+
+  # -------------------------------------------------------------------------
+  # CiliumNetworkPolicy
+  # -------------------------------------------------------------------------
+  - it: should allow each vault once, and the Entra ID token endpoint
+    template: ciliumnetworkpolicy.yaml
+    set:
+      networkPolicy.cilium.enabled: true
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+        vault-two:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000002"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        checkout:
+          instances:
+            - appId: 111111
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-1"
+            - appId: 222222
+              signer:
+                cloudIdentity: vault-one
+                keyId: "https://stsexample.vault.azure.net/keys/checkout-2"
+            - appId: 333333
+              signer:
+                cloudIdentity: vault-two
+                keyId: "https://stsother.vault.azure.net/keys/checkout-3"
+    asserts:
+      - equal:
+          path: spec.egress[1].toFQDNs
+          value:
+            - matchName: token.actions.githubusercontent.com
+            - matchName: stsexample.vault.azure.net
+            - matchName: stsother.vault.azure.net
+            - matchName: login.microsoftonline.com
+
+  - it: should derive no signer host when deriveSignerHosts is off
+    template: ciliumnetworkpolicy.yaml
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.cilium.deriveSignerHosts: false
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - equal:
+          path: spec.egress[1].toFQDNs
+          value:
+            - matchName: token.actions.githubusercontent.com
+
+  - it: should derive no signer host for a release on Secrets
+    template: ciliumnetworkpolicy.yaml
+    set:
+      networkPolicy.cilium.enabled: true
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - equal:
+          path: spec.egress[1].toFQDNs
+          value:
+            - matchName: token.actions.githubusercontent.com
+
+  # -------------------------------------------------------------------------
+  # Schema
+  # -------------------------------------------------------------------------
+  - it: should reject a key misspelled inside a signer
+    template: configmap.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyID: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'keyID' not allowed"
+
+  - it: should reject the provider field of chart 0.1.3-support-signer
+    template: configmap.yaml
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            provider: azure
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'provider' not allowed"
+
+  - it: should reject the azure block of chart 0.1.3-support-signer
+    template: configmap.yaml
+    set:
+      azure.credential: WorkloadIdentityCredential
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'azure' not allowed"
+
+  - it: should reject an identity with no azure block
+    template: configmap.yaml
+    set:
+      cloudIdentities:
+        vault-one: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/cloudIdentities/vault-one'"
+
+  - it: should reject an Azure identity with no tenant ID
+    template: configmap.yaml
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/cloudIdentities/vault-one/azure'"

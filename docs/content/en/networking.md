@@ -78,6 +78,8 @@ The server needs egress to the GitHub API, and to the JWKS endpoint of every iss
 
 A `bundles` entry adds a third destination: the host its `ref` points at. Nothing in the chart derives that host, so add it to `fqdns` on the Cilium side or to `cidrs` on the native side. How the server reacts to a bundle it cannot fetch is set by `fail_mode` on the entry rather than by the policy.
 
+An app whose key stays in Azure Key Vault (`signer`) adds the vault host of its `keyId`, plus `login.microsoftonline.com`, where the pod exchanges its ServiceAccount token for each cloud identity's vault token. github-sts signs at startup and refuses to start when it cannot, so a missing rule here stops the rollout rather than failing exchanges. On the native side, add the vault's and Microsoft Entra ID's ranges to `cidrs`; Azure publishes them as the `AzureKeyVault` and `AzureActiveDirectory` service tags.
+
 ### Native NetworkPolicy
 
 Works on any CNI implementing `networking.k8s.io/v1`. That API cannot match a destination by hostname, so external destinations are CIDR ranges you maintain.
@@ -119,6 +121,8 @@ networkPolicy:
 `deriveJwksHostsFromIssuers` is on by default. The chart appends the host of every `oidc.allowedIssuers` entry, and every host listed in `oidc.trustedJwksHosts`, to the FQDN allow-list as `matchName` entries. Adding an issuer therefore opens its key fetch automatically, and an issuer that serves JWKS from another host — `accounts.google.com` signing tokens whose keys live on `www.googleapis.com` — is covered as soon as you declare that in `oidc.trustedJwksHosts`.
 
 Set `deriveJwksHostsFromIssuers: false` only if you intend to maintain `fqdns` by hand. The derived entries disappear with it.
+
+`deriveSignerHosts` is on by default as well. The chart appends the host of every `signer.keyId`, once each, and `login.microsoftonline.com` when a key signs in Azure, so moving a key into a vault opens the path to it. Set it to `false` to list those hosts in `fqdns` yourself.
 
 ### DNS
 

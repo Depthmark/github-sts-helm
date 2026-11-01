@@ -129,6 +129,53 @@ github:
 
 The chart projects only that one key into the pod. Other keys in the same Secret are not mounted.
 
+## Keep App keys in Azure Key Vault
+
+With a `signer`, the App private key stays in Azure Key Vault and github-sts only receives signatures of the App JWT. No Secret holds the key, and the chart mounts none into the pod. This needs github-sts 0.1.3 or later.
+
+### 1. Prepare the vault and the identities
+
+Import each App's PEM into the vault as a key limited to `sign`, then delete the file. Create one user-assigned managed identity per vault, or one for all of them, and grant each the `sign` permission on its own keys and nothing else; let the vault firewall admit the address the pod calls from. [Configuration]({{< relref "/reference/configuration#signer" >}}) gives the import command and the narrowest role.
+
+Add a federated credential to each identity that names this cluster's service account issuer, the audience `api://AzureADTokenExchange`, and the pod's ServiceAccount as subject. For a release named `github-sts` in the namespace `github-sts`, with the chart's own ServiceAccount, that is `system:serviceaccount:github-sts:github-sts`. Several identities can trust the same ServiceAccount. Entra ID fetches the issuer's discovery document and keys, so the issuer must be reachable from the internet.
+
+### 2. Point the apps at their keys
+
+```yaml
+cloudIdentities:
+  vault-one:
+    azure:
+      clientId: 00000000-0000-0000-0000-000000000001
+      tenantId: 00000000-0000-0000-0000-000000000003
+
+github:
+  apps:
+    ci:
+      appId: "123456"
+      signer:
+        cloudIdentity: vault-one
+        keyId: https://myvault.vault.azure.net/keys/github-app-ci
+    release:
+      appId: "654321"
+      signer:
+        cloudIdentity: vault-one
+        keyId: https://myvault.vault.azure.net/keys/github-app-release
+```
+
+Every app moves at once. A release whose apps mix `signer` and `existingSecret` is refused by the chart, as it would be by the server, so there is never a PEM to fall back to. Pool instances take `signer` the same way, in place of `existingSecret`.
+
+The chart projects a ServiceAccount token for the audience above at `/var/run/secrets/github-sts-azure/token` and sets `AZURE_FEDERATED_TOKEN_FILE`; the client and tenant IDs go into the ConfigMap. It does not rely on the Azure workload identity webhook, and no service account annotation is needed. [Values Reference]({{< relref "values#cloud-identities" >}}) covers several identities.
+
+### 3. Verify
+
+github-sts signs a first App JWT at startup and refuses to start when a key cannot sign. A wrong key identifier, a missing role, a closed firewall or a federated credential that does not match all show in the pod log before the pod takes traffic:
+
+```bash
+kubectl logs --namespace github-sts deploy/github-sts
+```
+
+With a NetworkPolicy, allow egress to the vault and to `login.microsoftonline.com` first; [Networking]({{< relref "networking" >}}) shows how.
+
 ## Pull from a private registry
 
 Mirror the image and point the chart at your registry:

@@ -79,6 +79,8 @@ Le serveur a besoin de joindre deux types de destination : l'API GitHub, et le p
 
 Une entrée `bundles` ajoute une troisième destination : l'hôte visé par son `ref`. Le chart ne déduit pas cet hôte : ajoutez-le à `fqdns` côté Cilium, ou à `cidrs` côté natif. La réaction du serveur à un bundle qu'il ne parvient pas à récupérer est fixée par le champ `fail_mode` de l'entrée, et non par la politique réseau.
 
+Une app dont la clé reste dans Azure Key Vault (`signer`) ajoute l'hôte du coffre de son `keyId`, plus `login.microsoftonline.com`, où le pod échange son jeton de ServiceAccount contre le jeton du coffre de chaque identité cloud. github-sts signe au démarrage et refuse de démarrer s'il n'y parvient pas : une règle manquante ici bloque le déploiement plutôt que de faire échouer des échanges. Côté natif, ajoutez à `cidrs` les plages du coffre et de Microsoft Entra ID ; Azure les publie sous les étiquettes de service `AzureKeyVault` et `AzureActiveDirectory`.
+
 ### NetworkPolicy native
 
 Fonctionne sur tout CNI implémentant `networking.k8s.io/v1`. Cette API ne sait pas filtrer une destination par nom d'hôte : les destinations externes sont donc des plages CIDR que vous maintenez.
@@ -120,6 +122,8 @@ networkPolicy:
 `deriveJwksHostsFromIssuers` est actif par défaut. Le chart ajoute à la liste d'autorisation FQDN, sous forme d'entrées `matchName`, l'hôte de chaque entrée de `oidc.allowedIssuers` ainsi que chaque hôte listé dans `oidc.trustedJwksHosts`. Ajouter un émetteur ouvre donc automatiquement la récupération de ses clés, et un émetteur qui sert ses JWKS depuis un autre hôte — `accounts.google.com` signant des jetons dont les clés vivent sur `www.googleapis.com` — est couvert dès que vous le déclarez dans `oidc.trustedJwksHosts`.
 
 Ne mettez `deriveJwksHostsFromIssuers: false` que si vous comptez maintenir `fqdns` à la main : les entrées dérivées disparaissent avec ce réglage.
+
+`deriveSignerHosts` est lui aussi actif par défaut. Le chart ajoute l'hôte de chaque `signer.keyId`, une seule fois chacun, et `login.microsoftonline.com` quand une clé signe dans Azure : déplacer une clé dans un coffre ouvre donc le chemin vers celui-ci. Mettez-le à `false` pour lister ces hôtes vous-même dans `fqdns`.
 
 ### DNS
 

@@ -17,7 +17,7 @@ Required. A deployment with no app configured starts, serves `/health`, and reje
 
 | Value | Default | Effect |
 |---|---|---|
-| `github.apps` | `{}` | Map of app name to app configuration. The map key is the app name a client sends as `app=`, and the directory a trust policy is read from. Each entry is backed by one GitHub App (`appId` and `existingSecret`) or by a pool of several (`instances`), and optionally takes `secretPrivateKeyKey`, `orgPolicyRepo`, `policyResolution`, and `rotation`. |
+| `github.apps` | `{}` | Map of app name to app configuration. The map key is the app name a client sends as `app=`, and the directory a trust policy is read from. Each entry is backed by one GitHub App (`appId` with `existingSecret` or `signer`) or by a pool of several (`instances`), and optionally takes `secretPrivateKeyKey`, `orgPolicyRepo`, `policyResolution`, and `rotation`. |
 
 Each entry accepts the following fields:
 
@@ -26,8 +26,9 @@ Each entry accepts the following fields:
 | Field | Required | Effect |
 |---|---|---|
 | `appId` | One of `appId` / `instances` | Numeric GitHub App ID. Written to the ConfigMap as an integer. |
-| `existingSecret` | With `appId` | Name of a Secret in the release namespace holding the App's private key. The chart never creates this Secret and no value accepts key material. |
+| `existingSecret` | With `appId`, one of `existingSecret` / `signer` | Name of a Secret in the release namespace holding the App's private key. The chart never creates this Secret and no value accepts key material. |
 | `secretPrivateKeyKey` | No | Key inside that Secret. Defaults to `github-app-private-key`. Only this key is projected into the pod. |
+| `signer` | With `appId`, one of `existingSecret` / `signer` | The App key held in a key vault, as `keyId`, and the `cloudIdentity` that signs with it. Nothing is mounted for it. See [Sign in Azure Key Vault](#sign-in-azure-key-vault) below. |
 | `instances` | One of `appId` / `instances` | List of GitHub Apps backing this one name. See [Pool several GitHub Apps behind one name](#pool-several-github-apps-behind-one-name) below. Mutually exclusive with `appId`. |
 | `rotation` | No | Instance selection settings. Only valid alongside `instances`; the server rejects it on a single-App entry, and so does the chart. |
 | `orgPolicyRepo` | No | Repository that holds organization-level trust policies, typically `.github`. Omit to resolve policies only from the target repository. |
@@ -65,8 +66,9 @@ Each entry in `instances` accepts:
 | Field | Required | Effect |
 |---|---|---|
 | `appId` | Yes | Numeric GitHub App ID. Must be unique within the pool; the chart rejects a duplicate. |
-| `existingSecret` | Yes | Secret holding this instance's private key. Instances may share a Secret as long as their `appId`s differ. |
+| `existingSecret` | One of `existingSecret` / `signer` | Secret holding this instance's private key. Instances may share a Secret as long as their `appId`s differ. |
 | `secretPrivateKeyKey` | No | Key inside that Secret. Defaults to `github-app-private-key`. |
+| `signer` | One of `existingSecret` / `signer` | This instance's key held in a key vault, as `provider` and `keyId`, and optionally the `identity` that signs with it and that identity's `tenantId`. |
 | `name` | No | Label for this instance in metrics and audit events. Defaults to `appId`. It becomes a Prometheus label value, so it is limited to 100 characters from `[a-zA-Z0-9._/-]`. |
 
 And `rotation` accepts:
@@ -108,6 +110,50 @@ github:
 ```
 
 Leaving `policyResolution` unset writes no `policy_resolution` key, so the server applies its own default. [Trust Policies]({{< relref "/concepts/trust-policies" >}}) covers what each mode means for policy authors.
+
+### Sign in Azure Key Vault
+
+Keep the App private key out of the pod: name a key held in Azure Key Vault with `signer` instead of a Secret, on an entry or a pool instance. github-sts sends the vault a SHA-256 digest and receives the signature of the App JWT, and the chart mounts no key into the pod, so a stolen pod, ConfigMap, or node disk yields no App key. Each `signer` names the [cloud identity](#cloud-identities) that signs with its key.
+
+```yaml
+cloudIdentities:
+  vault-one:
+    azure:
+      clientId: 00000000-0000-0000-0000-000000000001
+      tenantId: 00000000-0000-0000-0000-000000000003
+github:
+  apps:
+    default:
+      appId: "123456"
+      signer:
+        cloudIdentity: vault-one
+        keyId: https://myvault.vault.azure.net/keys/github-app-default
+```
+
+<!-- values:pause -->
+
+| Field | Required | Effect |
+|---|---|---|
+| `cloudIdentity` | Yes | Name of the `cloudIdentities` entry that signs with this key. Its cloud picks the provider. The chart fails the render on a name that is not defined. |
+| `keyId` | Yes | The key's identifier as Azure prints it, `https://<vault>.vault.azure.net/keys/<name>`, optionally followed by `/<version>`. Without a version github-sts signs with the key's current version, so importing a new version rotates the key with no chart change. |
+
+<!-- values:resume -->
+
+A release uses one kind of key source. Every instance of every app has a `signer`, or every one has an `existingSecret`, and the chart refuses a mix just as the server does at startup. Nothing falls back from one kind to the other.
+
+`signer` needs a github-sts image that knows `cloud_identities`, 0.1.3 or later. An older image rejects the key and the pod CrashLoopBackOffs with `field signer not found in type config.AppConfig`. [Configuration]({{< relref "/reference/configuration#signer" >}}) covers importing the key and the role each identity needs.
+
+## Cloud identities
+
+Read only when a `signer` names an entry; until then the chart renders none of it into the pod. Each entry is one user-assigned managed identity, and one release can sign as several, for example one per vault, each holding the sign permission on its own keys only.
+
+| Value | Default | Effect |
+|---|---|---|
+| `cloudIdentities` | `{}` | Map of identity name to identity. Each entry holds `azure.clientId` and `azure.tenantId`, both required GUIDs, the values the identity's Azure resource shows. The chart fails the render on a malformed ID and on an entry no `signer` names, as the server would refuse both at startup. |
+
+github-sts authenticates by workload identity only, so no Azure secret exists. The chart projects one ServiceAccount token for the audience `api://AzureADTokenExchange` at `/var/run/secrets/github-sts-azure/token` and sets `AZURE_FEDERATED_TOKEN_FILE`; Microsoft Entra ID exchanges that token for whichever identity a key names. No webhook is needed, so the same values work on any cluster whose service account issuer Entra ID can read. Each identity's federated credential names that issuer, the subject `system:serviceaccount:<namespace>:<serviceAccount>` of the ServiceAccount the pod runs as, and the audience above; the install notes print the subject to register.
+
+The pod can sign as every identity that trusts its ServiceAccount. Separate identities split grants and audit logs per vault; to isolate Apps from each other, run separate releases.
 
 ## Release identity
 
@@ -259,6 +305,7 @@ Both policy kinds default to off. Enable the one your CNI implements, or both.
 | `networkPolicy.cilium.fromEndpoints` | `[]` | Endpoint selectors allowed to reach the Service port. |
 | `networkPolicy.cilium.fqdns` | `[]` | FQDN selectors allowed for egress on TCP 443, each a `matchName` or `matchPattern` map. |
 | `networkPolicy.cilium.deriveJwksHostsFromIssuers` | `true` | Appends every `oidc.allowedIssuers` host and every `oidc.trustedJwksHosts` value to the FQDN allow-list, so adding an issuer does not silently break its key fetch. Disable to manage `fqdns` by hand. |
+| `networkPolicy.cilium.deriveSignerHosts` | `true` | Appends the vault host of every `signer.keyId`, and `login.microsoftonline.com` with `WorkloadIdentityCredential` or `EnvironmentCredential`, to the FQDN allow-list. github-sts refuses to start when a key cannot sign, so an unreachable vault stops the rollout. Disable to manage `fqdns` by hand. |
 | `networkPolicy.cilium.extraIngress` | `[]` | Extra ingress rules merged into the policy. |
 | `networkPolicy.cilium.extraEgress` | `[]` | Extra egress rules merged into the policy. |
 
