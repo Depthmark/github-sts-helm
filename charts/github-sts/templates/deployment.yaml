@@ -1,6 +1,9 @@
 {{- include "github-sts.validateTls" . -}}
 {{- include "github-sts.validateApps" . -}}
 {{- include "github-sts.validateEndpointAuth" . -}}
+{{- include "github-sts.validateCloudIdentities" . -}}
+{{- include "github-sts.validateSignerImage" . -}}
+{{- $azure := include "github-sts.azureSignerEnabled" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -84,6 +87,15 @@ spec:
                   name: {{ .Values.tracing.headersSecret.name }}
                   key: {{ .Values.tracing.headersSecret.key }}
             {{- end }}
+            {{- if $azure }}
+            {{- /* Read by the Azure SDK, not from the config file: the path of
+            the token github-sts exchanges for each cloud identity. The client
+            and tenant IDs are in the ConfigMap, so nothing else is needed, and
+            the Azure workload identity webhook never overwrites a variable the
+            container already sets. */}}
+            - name: AZURE_FEDERATED_TOKEN_FILE
+              value: {{ printf "%s/token" (include "github-sts.azureTokenDir" .) | quote }}
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -133,10 +145,17 @@ spec:
             {{- with .Values.extraVolumeMounts }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
+            {{- if $azure }}
+            - name: azure-federated-token
+              mountPath: {{ include "github-sts.azureTokenDir" . }}
+              readOnly: true
+            {{- end }}
             {{- range $appName, $appConfig := .Values.github.apps }}
+            {{- if include "github-sts.appMountsKeys" (dict "name" $appName "app" $appConfig) }}
             - name: github-app-{{ $appName }}-key
               mountPath: /etc/github-sts/apps/{{ $appName }}
               readOnly: true
+            {{- end }}
             {{- end }}
       volumes:
         - name: tmp
@@ -174,7 +193,23 @@ spec:
         {{- with .Values.extraVolumes }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+        {{- if $azure }}
+        {{- /* Projected by the chart rather than injected by the Azure workload
+        identity webhook, so the same values work on any cluster whose issuer
+        Microsoft Entra ID can read. The token is minted for Entra's audience
+        only, which the Kubernetes API server rejects, so this is not the API
+        credential `automountServiceAccountToken` keeps out of the pod. The
+        kubelet rotates it at 80% of its hour. */}}
+        - name: azure-federated-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: "api://AzureADTokenExchange"
+                  expirationSeconds: 3600
+                  path: token
+        {{- end }}
         {{- range $appName, $appConfig := .Values.github.apps }}
+        {{- if include "github-sts.appMountsKeys" (dict "name" $appName "app" $appConfig) }}
         {{- $instances := include "github-sts.appInstances" (dict "name" $appName "app" $appConfig) | fromYamlArray }}
         - name: github-app-{{ $appName }}-key
           {{- if $appConfig.instances }}
@@ -201,6 +236,7 @@ spec:
                 path: {{ .relPath }}
           {{- end }}
           {{- end }}
+        {{- end }}
         {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

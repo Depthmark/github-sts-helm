@@ -125,6 +125,16 @@ kubectl rollout restart deployment/github-sts --namespace github-sts
 
 Mettre à jour le Secret ne redémarre rien, et le serveur conserve la clé lue au démarrage. C'est le redémarrage qui met la nouvelle clé en service. Générez la nouvelle clé dans GitHub et laissez les deux clés valides avant de supprimer l'ancienne, pour qu'un pod pas encore roulé continue de fonctionner.
 
+## Déplacer les clés d'App dans un coffre de clés
+
+Remplacer `existingSecret` par `signer` concerne toutes les apps de la release à la fois : le chart refuse une release qui mélange les deux, comme le serveur. [Installation]({{< relref "installation" >}}), section « Conserver les clés d'App dans Azure Key Vault », détaille le coffre, l'identité et les valeurs.
+
+L'image serveur doit connaître `signer` et `cloud_identities`, soit github-sts 0.1.3 ou ultérieure. Le chart refuse de rendre un `signer` sur son image par défaut tant que son `appVersion` est plus ancienne ; avec un `image.tag` ou un `image.digest` explicite plus ancien, le pod redémarre en boucle avec `field signer not found in type config.AppConfig`.
+
+Un nouveau pod signe un premier JWT d'App avant de recevoir du trafic, et refuse de démarrer quand une clé ne peut pas signer : une identité ou un pare-feu défaillant bloque le déploiement sur son premier pod pendant que les anciens pods continuent de servir avec leurs PEM. Conservez les anciens Secrets jusqu'à ce que les nouveaux pods soient prêts : `helm rollback` restaure les entrées `existingSecret`, et ne fonctionne que tant que ces Secrets existent.
+
+Une fois sur un coffre, faire tourner une clé revient à en importer une nouvelle version dans le coffre. Avec un `keyId` qui ne nomme pas de version, la signature suivante l'utilise, sans changement du chart ni redémarrage.
+
 ## Convertir une app en pool
 
 Faire passer une entrée d'une seule GitHub App à `instances` remplace `appId` et `existingSecret` par une liste : c'est une modification d'entrée, pas un ajout.

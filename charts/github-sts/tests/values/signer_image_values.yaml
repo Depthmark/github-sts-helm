@@ -1,0 +1,12 @@
+cloudIdentities:
+  vault-one:
+    azure:
+      clientId: "00000000-0000-0000-0000-000000000001"
+      tenantId: "00000000-0000-0000-0000-000000000003"
+github:
+  apps:
+    default:
+      appId: 12345
+      signer:
+        cloudIdentity: vault-one
+        keyId: "https://stsexample.vault.azure.net/keys/github-app-default"

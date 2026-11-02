@@ -130,6 +130,53 @@ github:
 
 Le chart ne projette que cette clé dans le pod. Les autres clés du même Secret ne sont pas montées.
 
+## Conserver les clés d'App dans Azure Key Vault
+
+Avec un `signer`, la clé privée de l'App reste dans Azure Key Vault et github-sts ne reçoit que des signatures du JWT de l'App. Aucun Secret ne contient la clé, et le chart n'en monte aucune dans le pod. Cela exige github-sts 0.1.3 ou ultérieure.
+
+### 1. Préparer le coffre et les identités
+
+Importez le PEM de chaque App dans le coffre comme clé limitée à `sign`, puis supprimez le fichier. Créez une identité managée affectée par l'utilisateur par coffre, ou une seule pour tous, dans le locataire des coffres où elle signe, et accordez à chacune la permission `sign` sur ses propres clés et rien d'autre ; laissez le pare-feu du coffre admettre l'adresse depuis laquelle le pod appelle. [Configuration]({{< relref "/reference/configuration#signer" >}}) donne la commande d'import et le rôle le plus restreint.
+
+Ajoutez à chaque identité un identifiant fédéré qui nomme l'émetteur de comptes de service de ce cluster, l'audience `api://AzureADTokenExchange`, et le ServiceAccount du pod comme subject. Pour une release nommée `github-sts` dans le namespace `github-sts`, avec le ServiceAccount du chart, c'est `system:serviceaccount:github-sts:github-sts`. Plusieurs identités peuvent faire confiance au même ServiceAccount. Entra ID récupère le document de découverte et les clés de l'émetteur : celui-ci doit être joignable depuis Internet.
+
+### 2. Pointer les apps vers leurs clés
+
+```yaml
+cloudIdentities:
+  vault-one:
+    azure:
+      clientId: 00000000-0000-0000-0000-000000000001
+      tenantId: 00000000-0000-0000-0000-000000000003
+
+github:
+  apps:
+    ci:
+      appId: "123456"
+      signer:
+        cloudIdentity: vault-one
+        keyId: https://myvault.vault.azure.net/keys/github-app-ci
+    release:
+      appId: "654321"
+      signer:
+        cloudIdentity: vault-one
+        keyId: https://myvault.vault.azure.net/keys/github-app-release
+```
+
+Toutes les apps changent en même temps. Le chart refuse une release dont les apps mélangent `signer` et `existingSecret`, comme le ferait le serveur : il n'y a donc jamais de PEM sur lequel se rabattre. Les instances de pool prennent `signer` de la même façon, à la place de `existingSecret`.
+
+Le chart projette un jeton de ServiceAccount pour l'audience ci-dessus dans `/var/run/secrets/github-sts-azure/token` et définit `AZURE_FEDERATED_TOKEN_FILE` ; les identifiants client et de locataire vont dans le ConfigMap. Il ne compte pas sur le webhook Azure de workload identity, et aucune annotation de compte de service n'est nécessaire. [Référence des valeurs]({{< relref "values#identités-cloud" >}}) couvre plusieurs identités.
+
+### 3. Vérifier
+
+github-sts signe un premier JWT d'App au démarrage et refuse de démarrer quand une clé ne peut pas signer. Un identifiant de clé erroné, un rôle manquant, un pare-feu fermé, un coffre hors du locataire de son identité ou un identifiant fédéré qui ne correspond pas apparaissent tous dans le journal du pod avant qu'il ne reçoive du trafic :
+
+```bash
+kubectl logs --namespace github-sts deploy/github-sts
+```
+
+Avec une NetworkPolicy, autorisez d'abord la sortie vers le coffre et vers `login.microsoftonline.com` ; [Réseau]({{< relref "networking" >}}) montre comment.
+
 ## Tirer depuis un registre privé
 
 Répliquez l'image et pointez le chart vers votre registre :

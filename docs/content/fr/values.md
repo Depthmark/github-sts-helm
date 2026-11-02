@@ -18,7 +18,7 @@ Obligatoire. Un déploiement sans app configurée démarre, sert `/health` et re
 
 | Valeur | Défaut | Effet |
 |---|---|---|
-| `github.apps` | `{}` | Map associant un nom d'app à sa configuration. La clé de la map est le nom d'app envoyé par un client dans `app=`, et le répertoire depuis lequel une politique de confiance est lue. Chaque entrée est adossée à une seule GitHub App (`appId` et `existingSecret`) ou à un pool de plusieurs (`instances`), et accepte facultativement `secretPrivateKeyKey`, `orgPolicyRepo`, `policyResolution` et `rotation`. |
+| `github.apps` | `{}` | Map associant un nom d'app à sa configuration. La clé de la map est le nom d'app envoyé par un client dans `app=`, et le répertoire depuis lequel une politique de confiance est lue. Chaque entrée est adossée à une seule GitHub App (`appId` avec `existingSecret` ou `signer`) ou à un pool de plusieurs (`instances`), et accepte facultativement `secretPrivateKeyKey`, `orgPolicyRepo`, `policyResolution` et `rotation`. |
 
 Chaque entrée accepte les champs suivants :
 
@@ -27,8 +27,9 @@ Chaque entrée accepte les champs suivants :
 | Champ | Obligatoire | Effet |
 |---|---|---|
 | `appId` | `appId` ou `instances` | Identifiant numérique de la GitHub App. Écrit dans le ConfigMap sous forme d'entier. |
-| `existingSecret` | Avec `appId` | Nom d'un Secret du namespace de la release contenant la clé privée de l'App. Le chart ne crée jamais ce Secret et aucune valeur n'accepte de matériel cryptographique. |
+| `existingSecret` | Avec `appId`, `existingSecret` ou `signer` | Nom d'un Secret du namespace de la release contenant la clé privée de l'App. Le chart ne crée jamais ce Secret et aucune valeur n'accepte de matériel cryptographique. |
 | `secretPrivateKeyKey` | Non | Clé à l'intérieur de ce Secret. Vaut `github-app-private-key` par défaut. Seule cette clé est projetée dans le pod. |
+| `signer` | Avec `appId`, `existingSecret` ou `signer` | La clé de l'App conservée dans un coffre de clés, sous forme de `keyId`, et la `cloudIdentity` qui signe avec elle. Rien n'est monté pour elle. Voir [Signer dans Azure Key Vault](#signer-dans-azure-key-vault) ci-dessous. |
 | `instances` | `appId` ou `instances` | Liste des GitHub Apps adossées à ce seul nom. Voir [Regrouper plusieurs GitHub Apps sous un seul nom](#regrouper-plusieurs-github-apps-sous-un-seul-nom) ci-dessous. Exclusif avec `appId`. |
 | `rotation` | Non | Paramètres de sélection d'instance. Valide uniquement avec `instances` : le serveur le rejette sur une entrée à une seule App, et le chart aussi. |
 | `orgPolicyRepo` | Non | Dépôt contenant les politiques de confiance au niveau de l'organisation, typiquement `.github`. Omettez-le pour ne résoudre les politiques que depuis le dépôt cible. |
@@ -66,8 +67,9 @@ Chaque entrée de `instances` accepte :
 | Champ | Obligatoire | Effet |
 |---|---|---|
 | `appId` | Oui | Identifiant numérique de la GitHub App. Doit être unique au sein du pool ; le chart rejette un doublon. |
-| `existingSecret` | Oui | Secret contenant la clé privée de cette instance. Plusieurs instances peuvent partager un Secret tant que leurs `appId` diffèrent. |
+| `existingSecret` | `existingSecret` ou `signer` | Secret contenant la clé privée de cette instance. Plusieurs instances peuvent partager un Secret tant que leurs `appId` diffèrent. |
 | `secretPrivateKeyKey` | Non | Clé à l'intérieur de ce Secret. Vaut `github-app-private-key` par défaut. |
+| `signer` | `existingSecret` ou `signer` | La clé de cette instance conservée dans un coffre de clés, sous forme de `keyId`, et la `cloudIdentity` qui signe avec elle. |
 | `name` | Non | Étiquette de cette instance dans les métriques et les événements d'audit. Vaut `appId` par défaut. Elle devient une valeur d'étiquette Prometheus : 100 caractères au maximum, pris dans `[a-zA-Z0-9._/-]`. |
 
 Et `rotation` accepte :
@@ -109,6 +111,50 @@ github:
 ```
 
 Laisser `policyResolution` non défini n'écrit aucune clé `policy_resolution` : le serveur applique alors sa propre valeur par défaut. [Politiques de confiance]({{< relref "/concepts/trust-policies" >}}) détaille ce que chaque mode implique pour les auteurs de politiques.
+
+### Signer dans Azure Key Vault
+
+Gardez la clé privée de l'App hors du pod : désignez avec `signer`, sur une entrée ou une instance de pool, une clé conservée dans Azure Key Vault plutôt qu'un Secret. github-sts envoie au coffre un condensé SHA-256 et reçoit la signature du JWT de l'App, et le chart ne monte aucune clé dans le pod : un pod, un ConfigMap ou un disque de nœud dérobé ne livre aucune clé d'App. Chaque `signer` désigne l'[identité cloud](#identités-cloud) qui signe avec sa clé.
+
+```yaml
+cloudIdentities:
+  vault-one:
+    azure:
+      clientId: 00000000-0000-0000-0000-000000000001
+      tenantId: 00000000-0000-0000-0000-000000000003
+github:
+  apps:
+    default:
+      appId: "123456"
+      signer:
+        cloudIdentity: vault-one
+        keyId: https://myvault.vault.azure.net/keys/github-app-default
+```
+
+<!-- values:pause -->
+
+| Champ | Obligatoire | Effet |
+|---|---|---|
+| `cloudIdentity` | Oui | Nom de l'entrée de `cloudIdentities` qui signe avec cette clé. Son cloud choisit le fournisseur. Le chart échoue au rendu sur un nom qui n'est pas défini. |
+| `keyId` | Oui | L'identifiant de la clé tel qu'Azure l'affiche, `https://<vault>.vault.azure.net/keys/<name>`, suivi facultativement de `/<version>`. Sans version, github-sts signe avec la version courante de la clé : importer une nouvelle version effectue la rotation de la clé sans modifier le chart. |
+
+<!-- values:resume -->
+
+Une release utilise un seul type de source de clé. Chaque instance de chaque app a un `signer`, ou chacune a un `existingSecret`, et le chart refuse un mélange comme le serveur le fait au démarrage. Rien ne bascule d'un type à l'autre.
+
+`signer` exige une image github-sts qui connaît `cloud_identities`, 0.1.3 ou ultérieure. Le chart refuse de rendre un `signer` sur son image par défaut tant que son `appVersion` est plus ancienne. Un `image.tag` ou un `image.digest` explicite relève de votre choix d'image et n'est pas vérifié : une image plus ancienne rejette la clé au démarrage, et le pod redémarre en boucle avec `field signer not found in type config.AppConfig`. [Configuration]({{< relref "/reference/configuration#signer" >}}) couvre l'import de la clé et le rôle dont chaque identité a besoin.
+
+## Identités cloud
+
+Lu uniquement quand un `signer` désigne une entrée ; jusque-là, le chart n'en rend rien dans le pod. Chaque entrée est une identité managée affectée par l'utilisateur, et une même release peut signer sous plusieurs, par exemple une par coffre, chacune ne détenant la permission `sign` que sur ses propres clés. Une identité ne signe que dans les coffres de son propre `tenantId` : Key Vault demande un jeton dans le locataire du coffre, et github-sts ne demande de jetons que dans celui de l'identité, si bien qu'une clé dans le coffre d'un autre locataire arrête le pod au démarrage avec une erreur qui le dit. Pour un tel coffre, créez l'identité dans le locataire de ce coffre.
+
+| Valeur | Défaut | Effet |
+|---|---|---|
+| `cloudIdentities` | `{}` | Map du nom d'identité vers l'identité. Chaque entrée contient `azure.clientId` et `azure.tenantId`, deux GUID obligatoires, les valeurs qu'affiche la ressource Azure de l'identité. Le chart échoue au rendu sur un identifiant mal formé et sur une entrée qu'aucun `signer` ne désigne, comme le serveur refuserait les deux au démarrage. |
+
+github-sts s'authentifie uniquement par identité de charge de travail : aucun secret Azure n'existe. Le chart projette un jeton de ServiceAccount pour l'audience `api://AzureADTokenExchange` dans `/var/run/secrets/github-sts-azure/token` et définit `AZURE_FEDERATED_TOKEN_FILE` ; Microsoft Entra ID échange ce jeton contre l'identité que désigne chaque clé. Aucun webhook n'est nécessaire : les mêmes valeurs fonctionnent sur tout cluster dont Entra ID peut lire l'émetteur de comptes de service. L'identifiant fédéré de chaque identité nomme cet émetteur, le subject `system:serviceaccount:<namespace>:<serviceAccount>` du ServiceAccount sous lequel tourne le pod, et l'audience ci-dessus ; les notes d'installation affichent le subject à enregistrer.
+
+Le pod peut signer sous toute identité qui fait confiance à son ServiceAccount. Des identités distinctes séparent les octrois et les journaux d'audit par coffre ; pour isoler les Apps les unes des autres, exécutez des releases distinctes.
 
 ## Identité de la release
 
@@ -260,6 +306,7 @@ Les deux familles de politiques sont désactivées par défaut. Activez celle qu
 | `networkPolicy.cilium.fromEndpoints` | `[]` | Sélecteurs d'endpoints autorisés à joindre le port du Service. |
 | `networkPolicy.cilium.fqdns` | `[]` | Sélecteurs FQDN autorisés en sortie sur TCP 443, chacun étant une map `matchName` ou `matchPattern`. |
 | `networkPolicy.cilium.deriveJwksHostsFromIssuers` | `true` | Ajoute à la liste d'autorisation FQDN l'hôte de chaque entrée de `oidc.allowedIssuers` et chaque hôte listé dans `oidc.trustedJwksHosts`, pour qu'ajouter un émetteur ne casse pas silencieusement la récupération de ses clés. Désactivez pour gérer `fqdns` à la main. |
+| `networkPolicy.cilium.deriveSignerHosts` | `true` | Ajoute à la liste d'autorisation FQDN l'hôte du coffre de chaque `signer.keyId`, et `login.microsoftonline.com` avec `WorkloadIdentityCredential` ou `EnvironmentCredential`. github-sts refuse de démarrer quand une clé ne peut pas signer : un coffre injoignable bloque donc le déploiement. Désactivez pour gérer `fqdns` à la main. |
 | `networkPolicy.cilium.extraIngress` | `[]` | Règles d'entrée supplémentaires fusionnées dans la politique. |
 | `networkPolicy.cilium.extraEgress` | `[]` | Règles de sortie supplémentaires fusionnées dans la politique. |
 

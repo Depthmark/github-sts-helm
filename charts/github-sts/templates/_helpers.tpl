@@ -318,7 +318,9 @@ single GitHub App (`appId` / `existingSecret`) or by a pool of several
 this helper, so every template iterates one shape instead of branching.
 
 Each element carries the private key's location in both forms the templates
-need: `relPath` for the volume item, `keyPath` for the ConfigMap.
+need: `relPath` for the volume item, `keyPath` for the ConfigMap. An instance
+whose key stays in a vault carries `signer` instead, and no location at all:
+nothing is mounted for it.
 
 Pool members get their own `<appId>/` directory under the app mount. The
 directory is keyed on `appId` rather than the instance name because `appId` is
@@ -334,25 +336,158 @@ Usage:
 {{- if $app.instances -}}
 {{- range $app.instances }}
 {{- $appID := .appId | int64 }}
-{{- $secretKey := .secretPrivateKeyKey | default "github-app-private-key" }}
-{{- $relPath := printf "%d/%s" $appID $secretKey }}
 - name: {{ .name | default (printf "%d" $appID) | quote }}
   appId: {{ $appID }}
-  existingSecret: {{ .existingSecret | quote }}
-  secretKey: {{ $secretKey | quote }}
-  relPath: {{ $relPath | quote }}
-  keyPath: {{ printf "%s/%s" $mountPath $relPath | quote }}
+  {{- include "github-sts.instanceKeySource" (dict "inst" . "dir" (printf "%s/%d" $mountPath $appID) "relDir" (printf "%d/" $appID)) | nindent 2 }}
 {{- end }}
 {{- else -}}
 {{- $appID := $app.appId | int64 }}
-{{- $secretKey := $app.secretPrivateKeyKey | default "github-app-private-key" }}
 - name: {{ printf "%d" $appID | quote }}
   appId: {{ $appID }}
-  existingSecret: {{ $app.existingSecret | quote }}
-  secretKey: {{ $secretKey | quote }}
-  relPath: {{ $secretKey | quote }}
-  keyPath: {{ printf "%s/%s" $mountPath $secretKey | quote }}
+  {{- include "github-sts.instanceKeySource" (dict "inst" $app "dir" $mountPath "relDir" "") | nindent 2 }}
 {{- end -}}
+{{- end }}
+
+{{/*
+The key source fields of one appInstances element: `signer` for a key held in a
+vault, or the Secret and the two paths of a mounted PEM. `dir` is the directory
+the key lands in inside the container, `relDir` the same directory relative to
+the app mount.
+*/}}
+{{- define "github-sts.instanceKeySource" -}}
+{{- $inst := .inst -}}
+{{- if include "github-sts.hasSigner" $inst -}}
+signer:
+  cloudIdentity: {{ $inst.signer.cloudIdentity | default "" | quote }}
+  keyId: {{ $inst.signer.keyId | default "" | quote }}
+{{- else -}}
+{{- $secretKey := $inst.secretPrivateKeyKey | default "github-app-private-key" -}}
+existingSecret: {{ $inst.existingSecret | quote }}
+secretKey: {{ $secretKey | quote }}
+relPath: {{ printf "%s%s" .relDir $secretKey | quote }}
+keyPath: {{ printf "%s/%s" .dir $secretKey | quote }}
+{{- end -}}
+{{- end }}
+
+{{/*
+The server's key source for one appInstances element: the mounted PEM's path,
+or the signer that names a key in a vault and the cloud identity that signs
+with it. The `signer` key is rendered only when set, so a release that never
+uses one stays loadable on an image older than 0.1.3, which rejects the key
+outright.
+*/}}
+{{- define "github-sts.configKeySource" -}}
+{{- if .signer -}}
+signer:
+  cloud_identity: {{ .signer.cloudIdentity | quote }}
+  key_id: {{ .signer.keyId | quote }}
+{{- else -}}
+private_key_path: {{ .keyPath | quote }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether an app entry or a pool instance names a key held in a vault. Any
+field counts, as on the server, so a half-written signer is reported as such
+rather than read as a missing key source.
+*/}}
+{{- define "github-sts.hasSigner" -}}
+{{- $s := .signer | default dict -}}
+{{- if or $s.cloudIdentity $s.keyId -}}
+true
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether an app has a private key to mount. An app whose keys all stay in a vault
+gets no volume and no mount.
+Usage: {{ include "github-sts.appMountsKeys" (dict "name" $appName "app" $appConfig) }}
+*/}}
+{{- define "github-sts.appMountsKeys" -}}
+{{- range include "github-sts.appInstances" . | fromYamlArray -}}
+{{- if not .signer -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Every instance of every app that signs in a vault, as a list of
+`{app, instance, cloudIdentity, keyId, provider}`, in app name order.
+`provider` is the cloud of the `cloudIdentities` entry the signer names, and
+empty when that entry is missing or names no cloud.
+*/}}
+{{- define "github-sts.signers" -}}
+{{- $identities := .Values.cloudIdentities | default dict -}}
+{{- range $appName, $app := .Values.github.apps -}}
+{{- range $inst := include "github-sts.appInstances" (dict "name" $appName "app" $app) | fromYamlArray -}}
+{{- with $inst.signer }}
+{{- $identity := get $identities (.cloudIdentity | toString) | default dict }}
+- app: {{ $appName | quote }}
+  instance: {{ $inst.name | quote }}
+  cloudIdentity: {{ .cloudIdentity | quote }}
+  keyId: {{ .keyId | quote }}
+  provider: {{ if $identity.azure }}"azure"{{ else }}""{{ end }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The Azure identities the pod signs as, by name and in name order, each as
+`{name, clientId, tenantId}`. Only identities a signer names count: NOTES
+lists their federated credentials.
+*/}}
+{{- define "github-sts.azureIdentities" -}}
+{{- $names := list -}}
+{{- range include "github-sts.signers" . | fromYamlArray -}}
+{{- if eq .provider "azure" -}}
+{{- $names = append $names .cloudIdentity -}}
+{{- end -}}
+{{- end -}}
+{{- range $name := $names | uniq | sortAlpha }}
+{{- $az := (get $.Values.cloudIdentities $name).azure }}
+- name: {{ $name | quote }}
+  clientId: {{ $az.clientId | quote }}
+  tenantId: {{ $az.tenantId | quote }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Whether any app signs with Azure Key Vault. The projected token is rendered
+only then: a token Microsoft Entra ID would exchange, in a pod that never uses
+it, is credential material with no legitimate use.
+*/}}
+{{- define "github-sts.azureSignerEnabled" -}}
+{{- range include "github-sts.signers" . | fromYamlArray -}}
+{{- if eq .provider "azure" -}}
+true
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/* Directory the projected Azure federated token is mounted at. */}}
+{{- define "github-sts.azureTokenDir" -}}
+/var/run/secrets/github-sts-azure
+{{- end }}
+
+{{/*
+Hosts the pod has to reach to sign: the vault of every `signer.keyId`, and
+the Microsoft Entra ID token endpoint where the pod exchanges its token for
+each Azure identity.
+*/}}
+{{- define "github-sts.signerHosts" -}}
+{{- $hosts := list -}}
+{{- range include "github-sts.signers" . | fromYamlArray -}}
+{{- $host := regexReplaceAll ":[0-9]+$" ((urlParse .keyId).host | default "") "" -}}
+{{- if $host -}}
+{{- $hosts = append $hosts $host -}}
+{{- end -}}
+{{- end -}}
+{{- if include "github-sts.azureSignerEnabled" . -}}
+{{- $hosts = append $hosts "login.microsoftonline.com" -}}
+{{- end -}}
+{{- $hosts | uniq | toYaml -}}
 {{- end }}
 
 {{/*
@@ -375,12 +510,12 @@ out of a running release instead of turning it into a CrashLoopBackOff.
 {{- define "github-sts.validateApps" -}}
 {{- range $appName, $app := .Values.github.apps -}}
 {{- $hasPool := gt (len ($app.instances | default list)) 0 -}}
-{{- $hasFlat := or $app.appId $app.existingSecret $app.secretPrivateKeyKey -}}
+{{- $hasFlat := or $app.appId $app.existingSecret $app.secretPrivateKeyKey (include "github-sts.hasSigner" $app) -}}
 {{- if and $hasPool $hasFlat -}}
-{{- fail (printf "github.apps.%s: appId/existingSecret/secretPrivateKeyKey and instances are mutually exclusive — a pooled app carries its credentials per instance" $appName) -}}
+{{- fail (printf "github.apps.%s: appId/existingSecret/secretPrivateKeyKey/signer and instances are mutually exclusive — a pooled app carries its credentials per instance" $appName) -}}
 {{- end -}}
 {{- if not (or $hasPool $hasFlat) -}}
-{{- fail (printf "github.apps.%s: set appId and existingSecret (one GitHub App), or instances (a pool of several)" $appName) -}}
+{{- fail (printf "github.apps.%s: set appId and existingSecret or signer (one GitHub App), or instances (a pool of several)" $appName) -}}
 {{- end -}}
 {{- if $hasPool -}}
 {{- $seenID := dict -}}
@@ -390,9 +525,7 @@ out of a running release instead of turning it into a CrashLoopBackOff.
 {{- if not $inst.appId -}}
 {{- fail (printf "github.apps.%s.instances[%d]: appId is required" $appName $i) -}}
 {{- end -}}
-{{- if not $inst.existingSecret -}}
-{{- fail (printf "github.apps.%s: instance %s: existingSecret is required — the chart never creates the Secret holding a private key" $appName $label) -}}
-{{- end -}}
+{{- include "github-sts.validateKeySource" (dict "prefix" (printf "github.apps.%s: instance %s" $appName $label) "src" $inst "ctx" $) -}}
 {{- if $inst.name -}}
 {{- if gt (len $inst.name) 100 -}}
 {{- fail (printf "github.apps.%s: instance %s: name exceeds maximum length of 100 (it becomes a Prometheus label value)" $appName $label) -}}
@@ -416,9 +549,7 @@ out of a running release instead of turning it into a CrashLoopBackOff.
 {{- if not $app.appId -}}
 {{- fail (printf "github.apps.%s: appId is required" $appName) -}}
 {{- end -}}
-{{- if not $app.existingSecret -}}
-{{- fail (printf "github.apps.%s: existingSecret is required — the chart never creates the Secret holding a private key" $appName) -}}
-{{- end -}}
+{{- include "github-sts.validateKeySource" (dict "prefix" (printf "github.apps.%s" $appName) "src" $app "ctx" $) -}}
 {{- end -}}
 {{- with $app.rotation -}}
 {{- if not $hasPool -}}
@@ -448,6 +579,124 @@ out of a running release instead of turning it into a CrashLoopBackOff.
 {{- fail (printf "github.apps.%s: policyResolution must be one of org_first, repo_first, org_only (got %q)" $appName .) -}}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+{{- include "github-sts.validateOneKeySourceKind" . -}}
+{{- end }}
+
+{{/*
+Exactly one key source per app entry or pool instance: a Secret holding the PEM,
+or a signer naming a key in a vault. `secretPrivateKeyKey` counts as the Secret
+side, because next to a signer it would name a key that is never mounted.
+Usage: {{ include "github-sts.validateKeySource" (dict "prefix" "github.apps.x" "src" $app "ctx" $) }}
+*/}}
+{{- define "github-sts.validateKeySource" -}}
+{{- $src := .src -}}
+{{- $hasSigner := include "github-sts.hasSigner" $src -}}
+{{- if and $hasSigner (or $src.existingSecret $src.secretPrivateKeyKey) -}}
+{{- fail (printf "%s: existingSecret/secretPrivateKeyKey and signer are mutually exclusive — the key is either mounted from a Secret or held in a vault" .prefix) -}}
+{{- end -}}
+{{- if not (or $hasSigner $src.existingSecret) -}}
+{{- fail (printf "%s: existingSecret is required, or signer for a key held in a vault — the chart never creates the Secret holding a private key" .prefix) -}}
+{{- end -}}
+{{- if $hasSigner -}}
+{{- $s := $src.signer -}}
+{{- if not $s.cloudIdentity -}}
+{{- fail (printf "%s: signer.cloudIdentity is required: the name of the cloudIdentities entry that signs with this key" .prefix) -}}
+{{- end -}}
+{{- if not $s.keyId -}}
+{{- fail (printf "%s: signer.keyId is required" .prefix) -}}
+{{- end -}}
+{{- $identities := .ctx.Values.cloudIdentities | default dict -}}
+{{- if not (hasKey $identities (toString $s.cloudIdentity)) -}}
+{{- if $identities -}}
+{{- fail (printf "%s: signer.cloudIdentity %q is not defined in cloudIdentities (defined: %s)" .prefix (toString $s.cloudIdentity) (keys $identities | sortAlpha | join ", ")) -}}
+{{- else -}}
+{{- fail (printf "%s: signer.cloudIdentity %q is not defined: cloudIdentities is empty" .prefix (toString $s.cloudIdentity)) -}}
+{{- end -}}
+{{- end -}}
+{{- /* The server's own parse of a Key Vault key identifier: https, a host,
+no credentials, query or fragment, and /keys/<name>[/<version>]. */ -}}
+{{- if and ((get $identities (toString $s.cloudIdentity)) | default dict).azure (not (regexMatch "^https://[^/?#@\\s]+/keys/[0-9A-Za-z-]{1,127}(/[0-9A-Za-z]{1,64})?/?$" $s.keyId)) -}}
+{{- fail (printf "%s: signer.keyId must be a Key Vault key URL, https://<vault>.vault.azure.net/keys/<name>[/<version>] (got %q)" .prefix $s.keyId) -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+A broker signs every App JWT in a vault or holds a PEM for every App instance,
+never a mix, and nothing falls back from one to the other. The server refuses a
+mix at startup; failing here keeps it out of a running release. The first
+offender of each kind is named, in app name order.
+*/}}
+{{- define "github-sts.validateOneKeySourceKind" -}}
+{{- $signer := "" -}}
+{{- $pem := "" -}}
+{{- range $appName, $app := .Values.github.apps -}}
+{{- range include "github-sts.appInstances" (dict "name" $appName "app" $app) | fromYamlArray -}}
+{{- $where := printf "github.apps.%s instance %s" $appName .name -}}
+{{- if and .signer (not $signer) -}}
+{{- $signer = $where -}}
+{{- else if and (not .signer) (not $pem) -}}
+{{- $pem = $where -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if and $signer $pem -}}
+{{- fail (printf "every app instance must use signer, or every one existingSecret, never a mix: %s uses signer, %s uses existingSecret" $signer $pem) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+Fail fast on cloud identities github-sts would refuse at startup: an entry
+with no cloud, a missing or malformed ID, or an entry no signer names. Each
+mirrors the server's own check (ADR github-sts/0020).
+*/}}
+{{- define "github-sts.validateCloudIdentities" -}}
+{{- $guid := "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$" -}}
+{{- $used := dict -}}
+{{- range include "github-sts.signers" . | fromYamlArray -}}
+{{- $_ := set $used (toString .cloudIdentity) true -}}
+{{- end -}}
+{{- range $name, $identity := .Values.cloudIdentities | default dict -}}
+{{- $prefix := printf "cloudIdentities.%s" $name -}}
+{{- /* The server's own name rule (validateName), with its messages. */ -}}
+{{- if gt (len $name) 100 -}}
+{{- fail (printf "%s: name exceeds maximum length of 100" $prefix) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-zA-Z0-9._/-]+$" $name) -}}
+{{- fail (printf "%s: name contains invalid characters" $prefix) -}}
+{{- end -}}
+{{- $az := ($identity | default dict).azure -}}
+{{- if not $az -}}
+{{- fail (printf "%s: azure is required, the one cloud github-sts signs in" $prefix) -}}
+{{- end -}}
+{{- /* The server's own check: both IDs are GUIDs, in any case. An
+identity's name (id-github-sts) or a tenant's domain copied by mistake fails
+here rather than at the first signature. The principal's object ID is a GUID
+too, so only the token exchange catches that one. */ -}}
+{{- if not (regexMatch $guid (toString ($az.clientId | default ""))) -}}
+{{- fail (printf "%s: azure.clientId must be the client ID of a user-assigned managed identity, a GUID (got %q)" $prefix (toString ($az.clientId | default ""))) -}}
+{{- end -}}
+{{- if not (regexMatch $guid (toString ($az.tenantId | default ""))) -}}
+{{- fail (printf "%s: azure.tenantId must be a Microsoft Entra tenant ID, a GUID (got %q)" $prefix (toString ($az.tenantId | default ""))) -}}
+{{- end -}}
+{{- if not (hasKey $used $name) -}}
+{{- fail (printf "%s: no signer names this identity: remove it, or set signer.cloudIdentity on the keys that sign as it" $prefix) -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+A signer needs a github-sts image that knows `signer` and `cloud_identities`,
+0.1.3 or later: an older one rejects the key at startup, and the pod
+CrashLoopBackOffs. The chart refuses that render when the image is its own
+default, `appVersion`. An explicit `image.tag` or `image.digest` is the
+operator's choice of image, as for pooled apps, and is not second-guessed.
+Once `appVersion` is 0.1.3 or later this check never fires.
+*/}}
+{{- define "github-sts.validateSignerImage" -}}
+{{- if and (include "github-sts.signers" . | fromYamlArray) (not .Values.image.tag) (not .Values.image.digest) (semverCompare "<0.1.3-0" .Chart.AppVersion) -}}
+{{- fail (printf "a signer needs a github-sts image that knows signer and cloud_identities, 0.1.3 or later, but this chart's appVersion is %s: set image.tag or image.digest to such an image" .Chart.AppVersion) -}}
 {{- end -}}
 {{- end }}
 

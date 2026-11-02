@@ -1,0 +1,37 @@
+suite: Install notes
+templates:
+  - NOTES.txt
+release:
+  name: test
+  namespace: github-sts
+tests:
+  - it: should list each cloud identity and the rules a key must meet to sign
+    set:
+      cloudIdentities:
+        vault-one:
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: vault-one
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - matchRegexRaw:
+          pattern: "subject:  system:serviceaccount:github-sts:test-github-sts"
+      - matchRegexRaw:
+          pattern: "vault-one: client ID 00000000-0000-0000-0000-000000000001, tenant 00000000-0000-0000-0000-000000000003"
+      - matchRegexRaw:
+          pattern: "each key's vault must be in its identity's tenant"
+
+  - it: should say nothing about cloud identities for a release on Secrets
+    set:
+      github.apps:
+        default:
+          appId: 12345
+          existingSecret: "github-app-default-credentials"
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "federated credential|cloud identity"

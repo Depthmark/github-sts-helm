@@ -16,7 +16,7 @@ Workloads with OIDC tokens (GitHub Actions, Azure, Google Cloud, etc.) exchange 
 - Kubernetes 1.19+
 - Helm 3.0+
 - At least one [GitHub App](https://docs.github.com/en/apps) registered with the required permissions
-- A Kubernetes Secret containing the GitHub App private key
+- A Kubernetes Secret containing the GitHub App private key, or the key imported into Azure Key Vault (see [App keys in Azure Key Vault](#app-keys-in-azure-key-vault))
 
 ## Installation
 
@@ -91,6 +91,43 @@ github:
 Pool support needs github-sts 0.1.1 or later, which is what this chart's `appVersion` pins. An older image rejects `instances:` outright instead of falling back to the flat form. The config decoder runs with known-fields checking, so the pod CrashLoopBackOffs with `field instances not found in type config.AppConfig`. Only an `image.tag` or `image.digest` override below the `appVersion` reaches that state.
 
 Every instance in a pool must be installed with identical permissions and repository access. The server treats members as interchangeable and does not verify that they are, so a mismatched instance shows up as intermittent `422` responses. Alert on `githubsts_app_pool_exhausted_total`, which increments when every instance in a pool failed one request.
+
+### App keys in Azure Key Vault
+
+`signer` replaces `existingSecret` on an entry or a pool instance. The App private key then stays in Azure Key Vault: github-sts sends the vault a digest and receives the signature of the App JWT, and the chart mounts no key into the pod. Each `signer` names the cloud identity that signs with its key, defined once under `cloudIdentities`:
+
+```yaml
+cloudIdentities:
+  vault-one:
+    azure:
+      clientId: 00000000-0000-0000-0000-000000000001
+      tenantId: 00000000-0000-0000-0000-000000000003
+  vault-two:
+    azure:
+      clientId: 00000000-0000-0000-0000-000000000002
+      tenantId: 00000000-0000-0000-0000-000000000003
+github:
+  apps:
+    checkout:
+      appId: "111111"
+      signer:
+        cloudIdentity: vault-one
+        keyId: https://vault-one.vault.azure.net/keys/github-app-checkout
+    settings:
+      appId: "222222"
+      signer:
+        cloudIdentity: vault-two
+        keyId: https://vault-two.vault.azure.net/keys/github-app-settings
+```
+
+Each entry is a user-assigned managed identity; `clientId` and `tenantId` are both required, and the identity signs only in vaults of its own tenant. github-sts authenticates by workload identity only: the chart projects one ServiceAccount token for `api://AzureADTokenExchange` and sets `AZURE_FEDERATED_TOKEN_FILE`, and Microsoft Entra ID exchanges that token for whichever identity a key names. No Azure secret exists and no webhook is needed. Each identity needs:
+
+1. A federated credential with this cluster's service account issuer, the subject `system:serviceaccount:<namespace>:<service account>` and the audience `api://AzureADTokenExchange`. `helm install` prints the subject.
+2. The `sign` permission on its own keys and nothing else.
+
+The chart fails the render on a `signer` that names an undefined identity, and on an identity no `signer` names. Separate identities split grants and audit logs per vault, not Apps inside one release: the pod can sign as every identity that trusts its ServiceAccount, so run separate releases to isolate Apps from each other.
+
+A release uses one kind of key source: every instance of every app has a `signer`, or every one has an `existingSecret`. The chart refuses a mix, as the server does at startup. `signer` needs a github-sts image that knows `cloud_identities`, 0.1.3 or later. The chart refuses to render a signer on its default image while its `appVersion` is older; an explicit older `image.tag` or `image.digest` is rejected at startup with `field signer not found in type config.AppConfig`.
 
 ## How It Works
 
@@ -204,6 +241,7 @@ jobs:
 | autoscaling.targetCPUUtilizationPercentage | int | `80` | Target CPU utilization percentage |
 | bundleEnforcement | string | `"optional"` | Bundle enforcement mode: `optional` or `required`. The server requires a valid value here and refuses to start without one, so the chart always renders it. `optional` evaluates whatever `bundles` lists and falls back to YAML-only trust-policy authorization when the list is empty. `required` turns the Rego layer into a startup precondition: at least one bundle must be configured, every entry needs an `expected_policy_revision` and an `oci://` ref pinned to `@sha256:<64 hex>`, `allow_mutable_ref` and `cosign.skip_verification` must stay false, and a bundle that applies to every app (`apps: []`) must use `fail_mode: closed`. |
 | bundles | list | `[]` | Signed Rego/OPA bundles evaluated after the YAML trust policy allows and before a GitHub installation token is minted. Entries are passed through to the server's top-level `bundles:` config without validation or renaming, so use the server's snake_case field names. For a local file ref, `registry.auth.password_file`, or `cosign.public_key_ref`, mount the file with `extraVolumes` and `extraVolumeMounts` and point the field at the mounted path. |
+| cloudIdentities | object | `{}` | Cloud identities map, by name. |
 | commonLabels | object | `{}` | Labels to add to all deployed objects |
 | endpointAuth.existingSecret | string | `""` | Existing Secret holding the tokens. When empty and a token is set below, the chart creates a Secret of its own. Point this at your own Secret when the token comes from an external secret manager. The chart then renders no Secret and only references it, and the two key names below declare which tokens that Secret actually holds. |
 | endpointAuth.healthKey | string | `"health-auth-token"` | Key inside the Secret holding the /health bearer token. Clear it to declare that `existingSecret` holds no health token, which leaves /health unauthenticated and lets the liveness probe stay on `httpGet`. |
@@ -247,6 +285,7 @@ jobs:
 | nameOverride | string | `""` | Override the chart name |
 | networkPolicy.allowKubeDns | bool | `true` | Allow egress to kube-dns (UDP/TCP 53). Applies to whichever policy kinds are enabled. Required for any FQDN/external lookup to resolve. |
 | networkPolicy.cilium.deriveJwksHostsFromIssuers | bool | `true` | Append issuer hosts and `oidc.trustedJwksHosts` values to the FQDN allow-list as `matchName` entries — issuer hosts cover the same-host JWKS case (GitHub Actions), trustedJwksHosts cover providers that publish JWKS on a different host (Google → www.googleapis.com). Disable to manage the FQDN list manually via `fqdns`. |
+| networkPolicy.cilium.deriveSignerHosts | bool | `true` | Append the vault host of every `signer.keyId` under `github.apps`, and `login.microsoftonline.com`, where the pod exchanges its token for an Azure identity, to the FQDN allow-list as `matchName` entries. github-sts refuses to start when a key cannot sign, so a vault it cannot reach stops the rollout. Disable to manage the FQDN list manually via `fqdns`. |
 | networkPolicy.cilium.enabled | bool | `false` | Render a CiliumNetworkPolicy. |
 | networkPolicy.cilium.extraEgress | list | `[]` | Free-form egress rules merged into the policy. |
 | networkPolicy.cilium.extraIngress | list | `[]` | Free-form ingress rules merged into the policy. |
@@ -481,6 +520,7 @@ helm uninstall github-sts
 - Resource limits and requests
 - Prometheus metrics with ServiceMonitor / PodMonitor
 - Support for externally managed Secrets for GitHub App private keys and endpoint bearer tokens
+- GitHub App keys held in Azure Key Vault, signed through a federated identity
 - Multiple GitHub App support
 - Helm test hooks for deployment validation
 
@@ -492,6 +532,6 @@ The chart enforces security best practices:
 - No privilege escalation
 - Dropped Linux capabilities
 - Health probes for auto-recovery
-- Private keys are mounted from existing Kubernetes Secrets (never stored in chart values)
+- Private keys are mounted from existing Kubernetes Secrets (never stored in chart values), or never enter the pod at all when held in Azure Key Vault
 - Optional end-to-end TLS with a configurable minimum version and cipher suite allow-list
 - Optional mutual TLS, verifying client certificates against a trusted CA bundle

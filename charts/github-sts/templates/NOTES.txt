@@ -78,6 +78,38 @@ App pools are configured:
   a pool failed one request.
 {{- end }}
 
+{{- if include "github-sts.azureSignerEnabled" . }}
+
+App keys stay in Azure Key Vault: github-sts signs App JWTs there and holds no
+private key. It exchanges a projected ServiceAccount token for each cloud
+identity a key names, so no Azure secret exists.
+{{- $identities := include "github-sts.azureIdentities" . | fromYamlArray }}
+  Each identity needs a federated credential with:
+    issuer:   this cluster's service account issuer URL
+    subject:  system:serviceaccount:{{ .Release.Namespace }}:{{ include "github-sts.serviceAccountName" . }}
+    audience: api://AzureADTokenExchange
+  Identities:
+{{- range $identities }}
+    {{ .name }}: client ID {{ .clientId }}, tenant {{ .tenantId }}
+{{- end }}
+  Each identity needs the sign permission on its own keys and nothing else,
+  each key's vault must be in its identity's tenant, and the vault firewall
+  must admit the address the pod calls from. github-sts signs a first App JWT
+  at startup and refuses to start when a key cannot sign, so a wrong role,
+  key, tenant or federated credential shows in the pod log, not in a failed
+  exchange:
+    kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "github-sts.fullname" . }}
+  Requires a github-sts image that knows cloud_identities, meaning 0.1.3 or
+  later. An older image rejects the keys and the pod CrashLoopBackOffs with
+  "field signer not found in type config.AppConfig".
+{{- if .Values.networkPolicy.native.enabled }}
+
+  WARNING: the native NetworkPolicy cannot match hostnames. Add the vault's
+  addresses and Microsoft Entra ID's (login.microsoftonline.com) to
+  networkPolicy.native.cidrs, or the pod cannot sign and never becomes ready.
+{{- end }}
+{{- end }}
+
 {{- if .Values.serviceMonitor.enabled }}
 
 Prometheus ServiceMonitor is enabled. Metrics will be scraped from {{ .Values.serviceMonitor.path }}.

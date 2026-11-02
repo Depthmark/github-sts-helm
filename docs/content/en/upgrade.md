@@ -124,6 +124,16 @@ kubectl rollout restart deployment/github-sts --namespace github-sts
 
 Updating the Secret alone does not restart anything, and the server holds the key it read at startup. The restart is what puts the new key in use. Generate the new key in GitHub and let both keys work before you delete the old one, so a pod that has not rolled yet keeps functioning.
 
+## Move the App keys into a key vault
+
+Replacing `existingSecret` with `signer` takes every app of the release at once: the chart refuses a release that mixes the two, as the server does. [Installation]({{< relref "installation#keep-app-keys-in-azure-key-vault" >}}) walks through the vault, the identity and the values.
+
+The server image has to know `signer` and `cloud_identities`, meaning github-sts 0.1.3 or later. The chart refuses to render a signer on its default image while its `appVersion` is older; with an explicit older `image.tag` or `image.digest`, the pod CrashLoopBackOffs with `field signer not found in type config.AppConfig`.
+
+A new pod signs a first App JWT before it takes traffic, and refuses to start when a key cannot sign, so a broken identity or firewall stalls the rollout on its first pod while the old pods keep serving with their PEMs. Keep the old Secrets until the new pods are ready: `helm rollback` restores the `existingSecret` entries, and only works while those Secrets exist.
+
+Once on a vault, rotating a key is importing a new version into the vault. With a `keyId` that names no version, the next signature uses it, with no chart change and no restart.
+
 ## Convert an app to a pool
 
 Moving an entry from a single GitHub App to `instances` replaces `appId` and `existingSecret` with a list, so it is an edit to one entry rather than an addition:
