@@ -69,7 +69,7 @@ Chaque entrée de `instances` accepte :
 | `appId` | Oui | Identifiant numérique de la GitHub App. Doit être unique au sein du pool ; le chart rejette un doublon. |
 | `existingSecret` | `existingSecret` ou `signer` | Secret contenant la clé privée de cette instance. Plusieurs instances peuvent partager un Secret tant que leurs `appId` diffèrent. |
 | `secretPrivateKeyKey` | Non | Clé à l'intérieur de ce Secret. Vaut `github-app-private-key` par défaut. |
-| `signer` | `existingSecret` ou `signer` | La clé de cette instance conservée dans un coffre de clés, sous forme de `provider` et `keyId`, et éventuellement l'`identity` qui signe avec elle et le `tenantId` de cette identité. |
+| `signer` | `existingSecret` ou `signer` | La clé de cette instance conservée dans un coffre de clés, sous forme de `keyId`, et la `cloudIdentity` qui signe avec elle. |
 | `name` | Non | Étiquette de cette instance dans les métriques et les événements d'audit. Vaut `appId` par défaut. Elle devient une valeur d'étiquette Prometheus : 100 caractères au maximum, pris dans `[a-zA-Z0-9._/-]`. |
 
 Et `rotation` accepte :
@@ -142,11 +142,11 @@ github:
 
 Une release utilise un seul type de source de clé. Chaque instance de chaque app a un `signer`, ou chacune a un `existingSecret`, et le chart refuse un mélange comme le serveur le fait au démarrage. Rien ne bascule d'un type à l'autre.
 
-`signer` exige une image github-sts qui connaît `cloud_identities`, 0.1.3 ou ultérieure. Une image plus ancienne rejette la clé et le pod redémarre en boucle avec `field signer not found in type config.AppConfig`. [Configuration]({{< relref "/reference/configuration#signer" >}}) couvre l'import de la clé et le rôle dont chaque identité a besoin.
+`signer` exige une image github-sts qui connaît `cloud_identities`, 0.1.3 ou ultérieure. Le chart refuse de rendre un `signer` sur son image par défaut tant que son `appVersion` est plus ancienne. Un `image.tag` ou un `image.digest` explicite relève de votre choix d'image et n'est pas vérifié : une image plus ancienne rejette la clé au démarrage, et le pod redémarre en boucle avec `field signer not found in type config.AppConfig`. [Configuration]({{< relref "/reference/configuration#signer" >}}) couvre l'import de la clé et le rôle dont chaque identité a besoin.
 
 ## Identités cloud
 
-Lu uniquement quand un `signer` désigne une entrée ; jusque-là, le chart n'en rend rien dans le pod. Chaque entrée est une identité managée affectée par l'utilisateur, et une même release peut signer sous plusieurs, par exemple une par coffre, chacune ne détenant la permission `sign` que sur ses propres clés.
+Lu uniquement quand un `signer` désigne une entrée ; jusque-là, le chart n'en rend rien dans le pod. Chaque entrée est une identité managée affectée par l'utilisateur, et une même release peut signer sous plusieurs, par exemple une par coffre, chacune ne détenant la permission `sign` que sur ses propres clés. Une identité ne signe que dans les coffres de son propre `tenantId` : Key Vault demande un jeton dans le locataire du coffre, et github-sts ne demande de jetons que dans celui de l'identité, si bien qu'une clé dans le coffre d'un autre locataire arrête le pod au démarrage avec une erreur qui le dit. Pour un tel coffre, créez l'identité dans le locataire de ce coffre.
 
 | Valeur | Défaut | Effet |
 |---|---|---|

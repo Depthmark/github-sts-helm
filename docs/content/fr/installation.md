@@ -136,7 +136,7 @@ Avec un `signer`, la clé privée de l'App reste dans Azure Key Vault et github-
 
 ### 1. Préparer le coffre et les identités
 
-Importez le PEM de chaque App dans le coffre comme clé limitée à `sign`, puis supprimez le fichier. Créez une identité managée affectée par l'utilisateur par coffre, ou une seule pour tous, et accordez à chacune la permission `sign` sur ses propres clés et rien d'autre ; laissez le pare-feu du coffre admettre l'adresse depuis laquelle le pod appelle. [Configuration]({{< relref "/reference/configuration#signer" >}}) donne la commande d'import et le rôle le plus restreint.
+Importez le PEM de chaque App dans le coffre comme clé limitée à `sign`, puis supprimez le fichier. Créez une identité managée affectée par l'utilisateur par coffre, ou une seule pour tous, dans le locataire des coffres où elle signe, et accordez à chacune la permission `sign` sur ses propres clés et rien d'autre ; laissez le pare-feu du coffre admettre l'adresse depuis laquelle le pod appelle. [Configuration]({{< relref "/reference/configuration#signer" >}}) donne la commande d'import et le rôle le plus restreint.
 
 Ajoutez à chaque identité un identifiant fédéré qui nomme l'émetteur de comptes de service de ce cluster, l'audience `api://AzureADTokenExchange`, et le ServiceAccount du pod comme subject. Pour une release nommée `github-sts` dans le namespace `github-sts`, avec le ServiceAccount du chart, c'est `system:serviceaccount:github-sts:github-sts`. Plusieurs identités peuvent faire confiance au même ServiceAccount. Entra ID récupère le document de découverte et les clés de l'émetteur : celui-ci doit être joignable depuis Internet.
 
@@ -169,7 +169,7 @@ Le chart projette un jeton de ServiceAccount pour l'audience ci-dessus dans `/va
 
 ### 3. Vérifier
 
-github-sts signe un premier JWT d'App au démarrage et refuse de démarrer quand une clé ne peut pas signer. Un identifiant de clé erroné, un rôle manquant, un pare-feu fermé ou un identifiant fédéré qui ne correspond pas apparaissent tous dans le journal du pod avant qu'il ne reçoive du trafic :
+github-sts signe un premier JWT d'App au démarrage et refuse de démarrer quand une clé ne peut pas signer. Un identifiant de clé erroné, un rôle manquant, un pare-feu fermé, un coffre hors du locataire de son identité ou un identifiant fédéré qui ne correspond pas apparaissent tous dans le journal du pod avant qu'il ne reçoive du trafic :
 
 ```bash
 kubectl logs --namespace github-sts deploy/github-sts

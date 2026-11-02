@@ -128,9 +128,7 @@ Updating the Secret alone does not restart anything, and the server holds the ke
 
 Replacing `existingSecret` with `signer` takes every app of the release at once: the chart refuses a release that mixes the two, as the server does. [Installation]({{< relref "installation#keep-app-keys-in-azure-key-vault" >}}) walks through the vault, the identity and the values.
 
-The server image has to know `signer` and `cloud_identities`, meaning github-sts 0.1.3 or later. An older image rejects the key and the pod CrashLoopBackOffs with `field signer not found in type config.AppConfig`.
-
-A release on a `0.1.3-support-signer` prerelease of the chart before `.3` used an `azure` block and `signer.provider`, `signer.identity` and `signer.tenantId`. The schema now refuses all four. Move each identity into `cloudIdentities` with its `clientId` and `tenantId`, name it in each `signer.cloudIdentity`, and drop `azure`: the token is always projected, and no credential type is chosen.
+The server image has to know `signer` and `cloud_identities`, meaning github-sts 0.1.3 or later. The chart refuses to render a signer on its default image while its `appVersion` is older; with an explicit older `image.tag` or `image.digest`, the pod CrashLoopBackOffs with `field signer not found in type config.AppConfig`.
 
 A new pod signs a first App JWT before it takes traffic, and refuses to start when a key cannot sign, so a broken identity or firewall stalls the rollout on its first pod while the old pods keep serving with their PEMs. Keep the old Secrets until the new pods are ready: `helm rollback` restores the `existingSecret` entries, and only works while those Secrets exist.
 

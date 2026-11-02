@@ -135,7 +135,7 @@ With a `signer`, the App private key stays in Azure Key Vault and github-sts onl
 
 ### 1. Prepare the vault and the identities
 
-Import each App's PEM into the vault as a key limited to `sign`, then delete the file. Create one user-assigned managed identity per vault, or one for all of them, and grant each the `sign` permission on its own keys and nothing else; let the vault firewall admit the address the pod calls from. [Configuration]({{< relref "/reference/configuration#signer" >}}) gives the import command and the narrowest role.
+Import each App's PEM into the vault as a key limited to `sign`, then delete the file. Create one user-assigned managed identity per vault, or one for all of them, in the tenant of the vaults it signs in, and grant each the `sign` permission on its own keys and nothing else; let the vault firewall admit the address the pod calls from. [Configuration]({{< relref "/reference/configuration#signer" >}}) gives the import command and the narrowest role.
 
 Add a federated credential to each identity that names this cluster's service account issuer, the audience `api://AzureADTokenExchange`, and the pod's ServiceAccount as subject. For a release named `github-sts` in the namespace `github-sts`, with the chart's own ServiceAccount, that is `system:serviceaccount:github-sts:github-sts`. Several identities can trust the same ServiceAccount. Entra ID fetches the issuer's discovery document and keys, so the issuer must be reachable from the internet.
 
@@ -168,7 +168,7 @@ The chart projects a ServiceAccount token for the audience above at `/var/run/se
 
 ### 3. Verify
 
-github-sts signs a first App JWT at startup and refuses to start when a key cannot sign. A wrong key identifier, a missing role, a closed firewall or a federated credential that does not match all show in the pod log before the pod takes traffic:
+github-sts signs a first App JWT at startup and refuses to start when a key cannot sign. A wrong key identifier, a missing role, a closed firewall, a vault outside its identity's tenant or a federated credential that does not match all show in the pod log before the pod takes traffic:
 
 ```bash
 kubectl logs --namespace github-sts deploy/github-sts

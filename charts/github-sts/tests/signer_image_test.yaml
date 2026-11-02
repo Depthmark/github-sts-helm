@@ -1,0 +1,60 @@
+suite: Signer image (a signer needs github-sts 0.1.3 or later)
+templates:
+  - configmap.yaml
+  - deployment.yaml
+  - secret.yaml
+release:
+  name: test
+  namespace: github-sts
+# Every test pins appVersion, so the suite keeps testing the guard after the
+# chart moves to a github-sts release that knows signer. A release with no
+# signer is never checked: every other suite renders one on the default image.
+values:
+  - ./values/signer_image_values.yaml
+tests:
+  - it: should refuse a signer on a default image older than 0.1.3
+    template: deployment.yaml
+    chart:
+      appVersion: 0.1.2
+    asserts:
+      - failedTemplate:
+          errorPattern: "a signer needs a github-sts image that knows signer and cloud_identities, 0\\.1\\.3 or later, but this chart's appVersion is 0\\.1\\.2: set image\\.tag or image\\.digest"
+
+  - it: should accept a signer on a default image of 0.1.3
+    template: deployment.yaml
+    chart:
+      appVersion: 0.1.3
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should accept a signer on a prerelease of 0.1.3
+    template: deployment.yaml
+    chart:
+      appVersion: 0.1.3-rc.1
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should leave an explicit image.tag to the operator
+    template: deployment.yaml
+    chart:
+      appVersion: 0.1.2
+    set:
+      image.tag: v0.1.3-signer.2
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/depthmark/github-sts:v0.1.3-signer.2
+
+  - it: should leave an explicit image.digest to the operator
+    template: deployment.yaml
+    chart:
+      appVersion: 0.1.2
+    set:
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - hasDocuments:
+          count: 1

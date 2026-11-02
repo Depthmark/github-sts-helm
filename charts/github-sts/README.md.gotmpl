@@ -117,14 +117,14 @@ github:
         keyId: https://vault-two.vault.azure.net/keys/github-app-settings
 ```
 
-Each entry is a user-assigned managed identity; `clientId` and `tenantId` are both required. github-sts authenticates by workload identity only: the chart projects one ServiceAccount token for `api://AzureADTokenExchange` and sets `AZURE_FEDERATED_TOKEN_FILE`, and Microsoft Entra ID exchanges that token for whichever identity a key names. No Azure secret exists and no webhook is needed. Each identity needs:
+Each entry is a user-assigned managed identity; `clientId` and `tenantId` are both required, and the identity signs only in vaults of its own tenant. github-sts authenticates by workload identity only: the chart projects one ServiceAccount token for `api://AzureADTokenExchange` and sets `AZURE_FEDERATED_TOKEN_FILE`, and Microsoft Entra ID exchanges that token for whichever identity a key names. No Azure secret exists and no webhook is needed. Each identity needs:
 
 1. A federated credential with this cluster's service account issuer, the subject `system:serviceaccount:<namespace>:<service account>` and the audience `api://AzureADTokenExchange`. `helm install` prints the subject.
 2. The `sign` permission on its own keys and nothing else.
 
 The chart fails the render on a `signer` that names an undefined identity, and on an identity no `signer` names. Separate identities split grants and audit logs per vault, not Apps inside one release: the pod can sign as every identity that trusts its ServiceAccount, so run separate releases to isolate Apps from each other.
 
-A release uses one kind of key source: every instance of every app has a `signer`, or every one has an `existingSecret`. The chart refuses a mix, as the server does at startup. `signer` needs a github-sts image that knows `cloud_identities`, 0.1.3 or later; an older image rejects the key with `field signer not found in type config.AppConfig`.
+A release uses one kind of key source: every instance of every app has a `signer`, or every one has an `existingSecret`. The chart refuses a mix, as the server does at startup. `signer` needs a github-sts image that knows `cloud_identities`, 0.1.3 or later. The chart refuses to render a signer on its default image while its `appVersion` is older; an explicit older `image.tag` or `image.digest` is rejected at startup with `field signer not found in type config.AppConfig`.
 
 ## How It Works
 

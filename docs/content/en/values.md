@@ -68,7 +68,7 @@ Each entry in `instances` accepts:
 | `appId` | Yes | Numeric GitHub App ID. Must be unique within the pool; the chart rejects a duplicate. |
 | `existingSecret` | One of `existingSecret` / `signer` | Secret holding this instance's private key. Instances may share a Secret as long as their `appId`s differ. |
 | `secretPrivateKeyKey` | No | Key inside that Secret. Defaults to `github-app-private-key`. |
-| `signer` | One of `existingSecret` / `signer` | This instance's key held in a key vault, as `provider` and `keyId`, and optionally the `identity` that signs with it and that identity's `tenantId`. |
+| `signer` | One of `existingSecret` / `signer` | This instance's key held in a key vault, as `keyId`, and the `cloudIdentity` that signs with it. |
 | `name` | No | Label for this instance in metrics and audit events. Defaults to `appId`. It becomes a Prometheus label value, so it is limited to 100 characters from `[a-zA-Z0-9._/-]`. |
 
 And `rotation` accepts:
@@ -141,11 +141,11 @@ github:
 
 A release uses one kind of key source. Every instance of every app has a `signer`, or every one has an `existingSecret`, and the chart refuses a mix just as the server does at startup. Nothing falls back from one kind to the other.
 
-`signer` needs a github-sts image that knows `cloud_identities`, 0.1.3 or later. An older image rejects the key and the pod CrashLoopBackOffs with `field signer not found in type config.AppConfig`. [Configuration]({{< relref "/reference/configuration#signer" >}}) covers importing the key and the role each identity needs.
+`signer` needs a github-sts image that knows `cloud_identities`, 0.1.3 or later. The chart refuses to render a signer on its default image while its `appVersion` is older. An explicit `image.tag` or `image.digest` is your choice of image and is not checked: an older one rejects the key at startup, and the pod CrashLoopBackOffs with `field signer not found in type config.AppConfig`. [Configuration]({{< relref "/reference/configuration#signer" >}}) covers importing the key and the role each identity needs.
 
 ## Cloud identities
 
-Read only when a `signer` names an entry; until then the chart renders none of it into the pod. Each entry is one user-assigned managed identity, and one release can sign as several, for example one per vault, each holding the sign permission on its own keys only.
+Read only when a `signer` names an entry; until then the chart renders none of it into the pod. Each entry is one user-assigned managed identity, and one release can sign as several, for example one per vault, each holding the sign permission on its own keys only. An identity signs only in vaults of its own `tenantId`: Key Vault asks for a token in the vault's tenant, and github-sts requests tokens only in the identity's, so a key in another tenant's vault stops the pod at startup with an error that says so. For such a vault, create the identity in that vault's tenant.
 
 | Value | Default | Effect |
 |---|---|---|

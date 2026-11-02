@@ -2,6 +2,7 @@
 {{- include "github-sts.validateApps" . -}}
 {{- include "github-sts.validateEndpointAuth" . -}}
 {{- include "github-sts.validateCloudIdentities" . -}}
+{{- include "github-sts.validateSignerImage" . -}}
 {{- $azure := include "github-sts.azureSignerEnabled" . -}}
 apiVersion: apps/v1
 kind: Deployment

@@ -659,8 +659,12 @@ mirrors the server's own check (ADR github-sts/0020).
 {{- end -}}
 {{- range $name, $identity := .Values.cloudIdentities | default dict -}}
 {{- $prefix := printf "cloudIdentities.%s" $name -}}
-{{- if or (gt (len $name) 100) (not (regexMatch "^[a-zA-Z0-9._/-]+$" $name)) -}}
-{{- fail (printf "%s: the name must be 1 to 100 letters, digits, '.', '_', '/' or '-'" $prefix) -}}
+{{- /* The server's own name rule (validateName), with its messages. */ -}}
+{{- if gt (len $name) 100 -}}
+{{- fail (printf "%s: name exceeds maximum length of 100" $prefix) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-zA-Z0-9._/-]+$" $name) -}}
+{{- fail (printf "%s: name contains invalid characters" $prefix) -}}
 {{- end -}}
 {{- $az := ($identity | default dict).azure -}}
 {{- if not $az -}}
@@ -679,6 +683,20 @@ too, so only the token exchange catches that one. */ -}}
 {{- if not (hasKey $used $name) -}}
 {{- fail (printf "%s: no signer names this identity: remove it, or set signer.cloudIdentity on the keys that sign as it" $prefix) -}}
 {{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+A signer needs a github-sts image that knows `signer` and `cloud_identities`,
+0.1.3 or later: an older one rejects the key at startup, and the pod
+CrashLoopBackOffs. The chart refuses that render when the image is its own
+default, `appVersion`. An explicit `image.tag` or `image.digest` is the
+operator's choice of image, as for pooled apps, and is not second-guessed.
+Once `appVersion` is 0.1.3 or later this check never fires.
+*/}}
+{{- define "github-sts.validateSignerImage" -}}
+{{- if and (include "github-sts.signers" . | fromYamlArray) (not .Values.image.tag) (not .Values.image.digest) (semverCompare "<0.1.3-0" .Chart.AppVersion) -}}
+{{- fail (printf "a signer needs a github-sts image that knows signer and cloud_identities, 0.1.3 or later, but this chart's appVersion is %s: set image.tag or image.digest to such an image" .Chart.AppVersion) -}}
 {{- end -}}
 {{- end }}
 

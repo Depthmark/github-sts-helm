@@ -1,6 +1,7 @@
 {{- include "github-sts.validateTls" . -}}
 {{- include "github-sts.validateApps" . -}}
 {{- include "github-sts.validateCloudIdentities" . -}}
+{{- include "github-sts.validateSignerImage" . -}}
 {{- include "github-sts.validateTracing" . -}}
 {{- include "github-sts.validateMetrics" . -}}
 apiVersion: v1

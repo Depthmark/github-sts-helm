@@ -7,6 +7,11 @@ templates:
 release:
   name: test
   namespace: github-sts
+# A signer needs github-sts 0.1.3 or later. The suite renders on such an
+# image whatever the chart's appVersion; signer_image_test.yaml covers the
+# guard against an older default image.
+chart:
+  appVersion: 0.1.3
 tests:
   # -------------------------------------------------------------------------
   # ConfigMap
@@ -565,7 +570,43 @@ tests:
             keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
     asserts:
       - failedTemplate:
-          errorPattern: "cloudIdentities\\.vault one: the name must be"
+          errorPattern: "cloudIdentities\\.vault one: name contains invalid characters"
+
+  - it: should accept an identity name of 100 characters, as the server does
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv":
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should fail on an identity name of 101 characters, as the server does
+    template: deployment.yaml
+    set:
+      cloudIdentities:
+        "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv":
+          azure:
+            clientId: "00000000-0000-0000-0000-000000000001"
+            tenantId: "00000000-0000-0000-0000-000000000003"
+      github.apps:
+        default:
+          appId: 12345
+          signer:
+            cloudIdentity: "vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv"
+            keyId: "https://stsexample.vault.azure.net/keys/github-app-default"
+    asserts:
+      - failedTemplate:
+          errorPattern: "name exceeds maximum length of 100"
 
   # -------------------------------------------------------------------------
   # CiliumNetworkPolicy
@@ -659,7 +700,7 @@ tests:
       - failedTemplate:
           errorPattern: "additional properties 'keyID' not allowed"
 
-  - it: should reject the provider field of chart 0.1.3-support-signer
+  - it: should reject a provider field inside a signer
     template: configmap.yaml
     set:
       github.apps:
@@ -672,7 +713,7 @@ tests:
       - failedTemplate:
           errorPattern: "additional properties 'provider' not allowed"
 
-  - it: should reject the azure block of chart 0.1.3-support-signer
+  - it: should reject a top-level azure block
     template: configmap.yaml
     set:
       azure.credential: WorkloadIdentityCredential
