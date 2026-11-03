@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.1.2...github-sts-v0.1.3) (2026-11-03)
+
+
+### ✨ Features
+
+* declare GitHub.com enterprise issuers per App ([#63](https://github.com/Depthmark/github-sts-helm/issues/63)) ([7063581](https://github.com/Depthmark/github-sts-helm/commit/70635814a63da10a1365319b561ef41cd4dc5530))
+* sign App JWTs with keys held in Azure Key Vault ([#60](https://github.com/Depthmark/github-sts-helm/issues/60)) ([2d652ee](https://github.com/Depthmark/github-sts-helm/commit/2d652ee4feb3f1511948bfc83f74a93d5e8a329a))
+
 ## [0.1.2](https://github.com/Depthmark/github-sts-helm/compare/github-sts-v0.1.1...github-sts-v0.1.2) (2026-10-18)
 
 
