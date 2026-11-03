@@ -1,0 +1,221 @@
+suite: GitHub issuers (oidc.githubIssuers)
+templates:
+  - configmap.yaml
+release:
+  name: test
+  namespace: github-sts
+# A declared issuer needs github-sts 0.1.3 or later. The suite renders on such
+# an image whatever the chart's appVersion; the last tests cover the guard
+# against an older default image.
+chart:
+  appVersion: 0.1.3
+values:
+  - ./values/github_issuers_values.yaml
+tests:
+  # -------------------------------------------------------------------------
+  # ConfigMap
+  # -------------------------------------------------------------------------
+  - it: should omit github_issuers when none is declared
+    set:
+      oidc.githubIssuers: []
+    asserts:
+      - notMatchRegex:
+          path: data["config.yaml"]
+          pattern: "github_issuers:"
+
+  - it: should render a declared issuer and the apps it reaches under oidc
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'require_immutable_subject_claims: true\n\s+github_issuers:\n\s+- issuer: "https://token.actions.githubusercontent.com/myorg-enterprise"\n\s+apps:\n\s+- "deploy"\n'
+
+  - it: should render every declared issuer, in order, with all its apps
+    set:
+      oidc.allowedIssuers:
+        - https://token.actions.githubusercontent.com
+        - https://token.actions.githubusercontent.com/myorg-enterprise
+        - https://token.actions.githubusercontent.com/other-enterprise
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          apps: [deploy, default]
+        - issuer: https://token.actions.githubusercontent.com/other-enterprise
+          apps: [default]
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'github_issuers:\n\s+- issuer: "https://token.actions.githubusercontent.com/myorg-enterprise"\n\s+apps:\n\s+- "deploy"\n\s+- "default"\n\s+- issuer: "https://token.actions.githubusercontent.com/other-enterprise"\n\s+apps:\n\s+- "default"\n'
+
+  - it: should leave the default issuer's immutable subject setting to the default issuer
+    set:
+      oidc.requireImmutableSubjectClaims: false
+    asserts:
+      - matchRegex:
+          path: data["config.yaml"]
+          pattern: 'require_immutable_subject_claims: false\n\s+github_issuers:'
+
+  # -------------------------------------------------------------------------
+  # Refused at render, as the server refuses at startup
+  # -------------------------------------------------------------------------
+  - it: should refuse the default issuer, which needs no declaration
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com
+          apps: [deploy]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.issuer must be https://token\.actions\.githubusercontent\.com/<enterprise-slug> \(got "https://token\.actions\.githubusercontent\.com"\)'
+
+  - it: should refuse an issuer hosted outside GitHub.com
+    set:
+      oidc.allowedIssuers:
+        - https://ghes.example.com/_services/token
+      oidc.githubIssuers:
+        - issuer: https://ghes.example.com/_services/token
+          apps: [deploy]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.issuer must be https://token\.actions\.githubusercontent\.com/<enterprise-slug> \(got "https://ghes\.example\.com/_services/token"\)'
+
+  - it: should refuse an enterprise issuer with a trailing slash
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise/
+          apps: [deploy]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.issuer must be https://token\.actions\.githubusercontent\.com/<enterprise-slug>'
+
+  - it: should refuse a slug that ends with a hyphen
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-
+          apps: [deploy]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.issuer must be https://token\.actions\.githubusercontent\.com/<enterprise-slug>'
+
+  - it: should refuse an issuer declared twice
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          apps: [deploy]
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          apps: [default]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[1\]\.issuer duplicates an earlier issuer \(got "https://token\.actions\.githubusercontent\.com/myorg-enterprise"\)'
+
+  - it: should refuse an issuer missing from allowedIssuers
+    set:
+      oidc.allowedIssuers:
+        - https://token.actions.githubusercontent.com
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.issuer must also be listed in oidc\.allowedIssuers \(got "https://token\.actions\.githubusercontent\.com/myorg-enterprise"\)'
+
+  - it: should refuse an issuer with no app
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          apps: []
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.apps must list at least one app'
+
+  - it: should refuse an empty app name
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          apps: [deploy, ""]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.apps must not contain empty app names'
+
+  - it: should refuse an app listed twice
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          apps: [deploy, deploy]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.apps contains duplicate app "deploy"'
+
+  - it: should refuse an app that github.apps does not define
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          apps: [deploy, release]
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.apps references unknown app "release": it must be a key of github\.apps'
+
+  - it: should refuse an issuer when no app is configured at all
+    set:
+      github.apps: null
+    asserts:
+      - failedTemplate:
+          errorPattern: 'oidc\.githubIssuers\[0\]\.apps references unknown app "deploy"'
+
+  # -------------------------------------------------------------------------
+  # Rejected by the schema, before anything renders
+  # -------------------------------------------------------------------------
+  - it: should reject a misspelled key inside an issuer entry
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+          app: [deploy]
+    asserts:
+      - failedTemplate:
+          errorPattern: "additional properties 'app' not allowed"
+
+  - it: should reject an issuer entry without apps
+    set:
+      oidc.githubIssuers:
+        - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+    asserts:
+      - failedTemplate:
+          errorPattern: "at '/oidc/githubIssuers/0': missing property 'apps'"
+
+  # -------------------------------------------------------------------------
+  # Image (a declared issuer needs github-sts 0.1.3 or later)
+  # -------------------------------------------------------------------------
+  - it: should refuse a declared issuer on a default image older than 0.1.3
+    chart:
+      appVersion: 0.1.2
+    asserts:
+      - failedTemplate:
+          errorPattern: "oidc\\.githubIssuers needs a github-sts image that knows oidc\\.github_issuers, 0\\.1\\.3 or later, but this chart's appVersion is 0\\.1\\.2: set image\\.tag or image\\.digest"
+
+  - it: should accept a declared issuer on a prerelease of 0.1.3
+    chart:
+      appVersion: 0.1.3-rc.1
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should leave an explicit image.tag to the operator
+    chart:
+      appVersion: 0.1.2
+    set:
+      image.tag: v0.1.3-rc.1
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should leave an explicit image.digest to the operator
+    chart:
+      appVersion: 0.1.2
+    set:
+      image.digest: sha256:0000000000000000000000000000000000000000000000000000000000000000
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should render no issuer on an older default image when none is declared
+    chart:
+      appVersion: 0.1.2
+    set:
+      oidc.githubIssuers: []
+    asserts:
+      - hasDocuments:
+          count: 1

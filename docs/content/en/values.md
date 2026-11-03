@@ -325,9 +325,38 @@ Both policy kinds default to off. Enable the one your CNI implements, or both.
 | `policy.basePath` | `".github/sts"` | Directory in the target repository holding trust policies. A policy resolves to `{basePath}/{app}/{identity}.sts.yaml`. |
 | `policy.cacheTtl` | `"60s"` | How long a fetched policy is reused. Higher values cut GitHub API calls; lower values shorten the window in which a revoked policy is still honored. |
 | `oidc.allowedIssuers` | `["https://token.actions.githubusercontent.com"]` | Issuers whose tokens are accepted. A token whose `iss` is not listed is rejected before any policy lookup. Keep this list as short as the deployment allows. |
-| `oidc.requireImmutableSubjectClaims` | `true` | Requires GitHub.com Actions tokens to carry immutable owner and repository IDs in `sub` (`repo:OWNER@OWNER-ID/REPO@REPO-ID:ref:...`). This matches the broker's own default, so the rendered key changes nothing until you turn it off. It governs only the `sub` format: the signed `repository_id` and `repository_owner_id` claims are mandatory for every GitHub.com token regardless, and other issuers are unaffected. Repositories created before 2026-07-15 keep the name-only subject until they opt in via the Actions OIDC setting or the REST API, and are rejected with `github_identity_immutable_subject_required` until they do. Turn it off only as a temporary migration posture — the name-only subject is vulnerable to repository namespace reuse — and alert on the `githubsts_oidc_immutable_subject_claims_required` gauge, which drops to 0. |
+| `oidc.requireImmutableSubjectClaims` | `true` | Requires GitHub.com Actions tokens to carry immutable owner and repository IDs in `sub` (`repo:OWNER@OWNER-ID/REPO@REPO-ID:ref:...`). This matches the broker's own default, so the rendered key changes nothing until you turn it off. It governs only the `sub` format: the signed `repository_id` and `repository_owner_id` claims are mandatory for every GitHub.com token regardless. It describes the default issuer only: an issuer in `oidc.githubIssuers` always requires the immutable subject, and other issuers are unaffected. Repositories created before 2026-07-15 keep the name-only subject until they opt in via the Actions OIDC setting or the REST API, and are rejected with `github_identity_immutable_subject_required` until they do. Turn it off only as a temporary migration posture — the name-only subject is vulnerable to repository namespace reuse — and alert on the `githubsts_oidc_immutable_subject_claims_required` gauge, which drops to 0. |
+| `oidc.githubIssuers` | `[]` | GitHub.com enterprise issuers, each with the GitHub identity checks of the default issuer and a bounded list of Apps it may reach. Empty renders no key. See [Accept a GitHub.com enterprise issuer](#enterprise-issuer). |
 | `oidc.requiredAudience` | `""` | Server-wide required `aud` claim, checked before policy lookup and before JTI reservation. Empty means per-policy `audience:` enforcement only. Set it to this deployment's public URL, so one permissive policy file cannot accept a token minted for another relying party. |
 | `oidc.trustedJwksHosts` | `{}` | Per-issuer JWKS host allow-list. By default the JWKS `Host` header is pinned to the issuer host, so a forged DNS answer cannot redirect a signing-key fetch. This map is the exception for issuers that publish keys elsewhere, such as `accounts.google.com` serving from `www.googleapis.com`. Keys are full issuer URLs, values are host lists. |
+
+### Accept a GitHub.com enterprise issuer {#enterprise-issuer}
+
+Let the workflows of one GitHub Enterprise Cloud enterprise reach chosen Apps with the same identity checks as GitHub.com. An enterprise that set `include_enterprise_slug` signs its tokens with its own issuer, `https://token.actions.githubusercontent.com/<slug>`. Declared in `oidc.githubIssuers`, that issuer gets the signed claim checks of the default issuer with the immutable subject always required, and github-sts denies its tokens with `issuer_not_enabled`, before any GitHub call, for every App not in `apps`.
+
+```yaml
+oidc:
+  allowedIssuers:
+    - https://token.actions.githubusercontent.com
+    - https://token.actions.githubusercontent.com/myorg-enterprise
+  githubIssuers:
+    - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+      apps:
+        - deploy
+```
+
+<!-- values:pause -->
+
+| Field | Required | Effect |
+|---|---|---|
+| `issuer` | Yes | The enterprise issuer exactly as it appears in `iss`, `https://token.actions.githubusercontent.com/<enterprise-slug>`. It must also be listed in `oidc.allowedIssuers`. The chart refuses the default issuer, which needs no declaration, and every issuer of another form, such as a GitHub Enterprise Server one. |
+| `apps` | Yes | Keys of `github.apps` this issuer's tokens may reach, at least one. A token from this issuer that requests any other App is denied, whatever its trust policy says. |
+
+<!-- values:resume -->
+
+The chart refuses to render an issuer missing from `oidc.allowedIssuers`, an issuer declared twice, and an App that `github.apps` does not define, as the server refuses to start on each. The issuer shares the default issuer's keys on the same host, so it needs no `oidc.trustedJwksHosts` entry, and the Cilium policy allows that host once. Listed in `oidc.allowedIssuers` alone, the same issuer stays a generic issuer: its tokens get no GitHub identity checks, and its trust policies cannot use the `github` block.
+
+`oidc.githubIssuers` needs a github-sts image that knows `oidc.github_issuers`, 0.1.3 or later. The chart refuses to render an issuer on its default image while its `appVersion` is older, and renders no key while the list is empty, so a release that declares none stays loadable on an older image. An explicit `image.tag` or `image.digest` is your choice of image and is not checked: an older one rejects the key at startup, and the pod CrashLoopBackOffs with `field github_issuers not found in type config.OIDCConfig`. [GitHub Actions]({{< relref "/oidc-issuers/github-actions#enterprise-issuer" >}}) covers the trust policy and turning the issuer on in GitHub.
 
 ## Policy bundles
 

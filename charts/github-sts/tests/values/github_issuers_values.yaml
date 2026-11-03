@@ -1,0 +1,15 @@
+github:
+  apps:
+    default:
+      appId: 12345
+      existingSecret: github-app-default
+    deploy:
+      appId: 67890
+      existingSecret: github-app-deploy
+oidc:
+  allowedIssuers:
+    - https://token.actions.githubusercontent.com
+    - https://token.actions.githubusercontent.com/myorg-enterprise
+  githubIssuers:
+    - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+      apps: [deploy]

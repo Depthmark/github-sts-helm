@@ -177,6 +177,48 @@ kubectl logs --namespace github-sts deploy/github-sts
 
 Avec une NetworkPolicy, autorisez d'abord la sortie vers le coffre et vers `login.microsoftonline.com` ; [Réseau]({{< relref "networking" >}}) montre comment.
 
+## Accepter les jetons d'un émetteur d'entreprise GitHub.com
+
+Laissez une entreprise GitHub Enterprise Cloud atteindre des Apps choisies par son propre émetteur, avec les mêmes vérifications d'identité que GitHub.com. Toutes les autres Apps continuent de refuser ses jetons. Cela exige github-sts 0.1.3 ou ultérieure.
+
+### 1. Déclarer l'émetteur
+
+Listez l'émetteur dans `oidc.allowedIssuers` et dans `oidc.githubIssuers`, et nommez les Apps qu'il peut atteindre :
+
+```yaml
+github:
+  apps:
+    deploy:
+      appId: "123456"
+      existingSecret: github-app-deploy
+
+oidc:
+  allowedIssuers:
+    - https://token.actions.githubusercontent.com
+    - https://token.actions.githubusercontent.com/myorg-enterprise
+  githubIssuers:
+    - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+      apps:
+        - deploy
+```
+
+Gardez l'émetteur par défaut dans `oidc.allowedIssuers` tant qu'une charge de travail l'utilise. Le chart refuse de rendre un émetteur absent de `oidc.allowedIssuers` ou qui nomme une App que `github.apps` ne définit pas ; [Référence des valeurs]({{< relref "values#enterprise-issuer" >}}) liste toutes les règles.
+
+### 2. Basculer l'entreprise et ses politiques de confiance
+
+Chaque politique de confiance nomme exactement un émetteur : une politique qui nomme encore l'émetteur par défaut refuse les jetons de l'entreprise avec `policy_denied` dès que GitHub bascule. Mettez à jour les politiques et activez `include_enterprise_slug` pour l'entreprise dans la même fenêtre. [GitHub Actions]({{< relref "/oidc-issuers/github-actions#enterprise-issuer" >}}) donne la politique et l'appel d'API.
+
+### 3. Vérifier
+
+`/health` liste chaque émetteur déclaré sous `security.github_issuers`, avec `require_immutable_subject_claims: true`. Il omet les Apps, car `/health` peut ne pas être authentifié :
+
+```bash
+kubectl run issuer-check --rm -i --restart=Never --namespace github-sts \
+  --image=curlimages/curl:8.11.1 -- -sS http://github-sts:8080/health
+```
+
+Un échange qui demande une App que l'émetteur ne liste pas échoue avec `403` et `issuer_not_enabled`, avant tout appel à GitHub.
+
 ## Tirer depuis un registre privé
 
 Répliquez l'image et pointez le chart vers votre registre :

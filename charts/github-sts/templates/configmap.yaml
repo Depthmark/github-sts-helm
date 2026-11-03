@@ -2,6 +2,8 @@
 {{- include "github-sts.validateApps" . -}}
 {{- include "github-sts.validateCloudIdentities" . -}}
 {{- include "github-sts.validateSignerImage" . -}}
+{{- include "github-sts.validateGitHubIssuers" . -}}
+{{- include "github-sts.validateGitHubIssuersImage" . -}}
 {{- include "github-sts.validateTracing" . -}}
 {{- include "github-sts.validateMetrics" . -}}
 apiVersion: v1
@@ -108,6 +110,18 @@ data:
       which would silently pin this to true and make the escape hatch
       unreachable. The chart's values.yaml carries the default instead. */}}
       require_immutable_subject_claims: {{ .Values.oidc.requireImmutableSubjectClaims }}
+      {{- with .Values.oidc.githubIssuers }}
+      {{- /* Rendered only when set, so a release that declares no issuer stays
+      loadable on an image older than 0.1.3. */}}
+      github_issuers:
+        {{- range . }}
+        - issuer: {{ .issuer | quote }}
+          apps:
+          {{- range .apps }}
+            - {{ . | quote }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
       {{- with .Values.oidc.trustedJwksHosts }}
       trusted_jwks_hosts:
         {{- toYaml . | nindent 8 }}
