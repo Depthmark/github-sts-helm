@@ -176,6 +176,48 @@ kubectl logs --namespace github-sts deploy/github-sts
 
 With a NetworkPolicy, allow egress to the vault and to `login.microsoftonline.com` first; [Networking]({{< relref "networking" >}}) shows how.
 
+## Accept tokens from a GitHub.com enterprise issuer
+
+Let one GitHub Enterprise Cloud enterprise reach chosen Apps through its own issuer, with the same identity checks as GitHub.com. Every other App keeps refusing its tokens. This needs github-sts 0.1.3 or later.
+
+### 1. Declare the issuer
+
+List the issuer in `oidc.allowedIssuers` and in `oidc.githubIssuers`, and name the Apps it may reach:
+
+```yaml
+github:
+  apps:
+    deploy:
+      appId: "123456"
+      existingSecret: github-app-deploy
+
+oidc:
+  allowedIssuers:
+    - https://token.actions.githubusercontent.com
+    - https://token.actions.githubusercontent.com/myorg-enterprise
+  githubIssuers:
+    - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+      apps:
+        - deploy
+```
+
+Keep the default issuer in `oidc.allowedIssuers` until no workload uses it. The chart refuses to render an issuer that is missing from `oidc.allowedIssuers` or names an App `github.apps` does not define; [Values Reference]({{< relref "values#enterprise-issuer" >}}) lists every rule.
+
+### 2. Switch the enterprise and its trust policies
+
+Each trust policy names exactly one issuer, so a policy that still names the default issuer denies the enterprise's tokens with `policy_denied` once GitHub switches. Update the policies and turn on `include_enterprise_slug` for the enterprise in the same window. [GitHub Actions]({{< relref "/oidc-issuers/github-actions#enterprise-issuer" >}}) gives the policy and the API call.
+
+### 3. Verify
+
+`/health` lists each declared issuer under `security.github_issuers`, with `require_immutable_subject_claims: true`. It leaves out the Apps, because `/health` can be unauthenticated:
+
+```bash
+kubectl run issuer-check --rm -i --restart=Never --namespace github-sts \
+  --image=curlimages/curl:8.11.1 -- -sS http://github-sts:8080/health
+```
+
+An exchange that requests an App the issuer does not list fails with `403` and `issuer_not_enabled`, before any GitHub call.
+
 ## Pull from a private registry
 
 Mirror the image and point the chart at your registry:

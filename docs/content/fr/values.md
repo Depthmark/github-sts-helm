@@ -326,9 +326,38 @@ Les deux familles de politiques sont désactivées par défaut. Activez celle qu
 | `policy.basePath` | `".github/sts"` | Répertoire du dépôt cible contenant les politiques de confiance. Une politique se résout en `{basePath}/{app}/{identity}.sts.yaml`. |
 | `policy.cacheTtl` | `"60s"` | Durée de réutilisation d'une politique récupérée. Une valeur élevée réduit les appels à l'API GitHub ; une valeur basse raccourcit la fenêtre pendant laquelle une politique révoquée reste honorée. |
 | `oidc.allowedIssuers` | `["https://token.actions.githubusercontent.com"]` | Émetteurs dont les jetons sont acceptés. Un jeton dont l'`iss` n'est pas listé est rejeté avant tout chargement de politique. Gardez cette liste aussi courte que le déploiement le permet. |
-| `oidc.requireImmutableSubjectClaims` | `true` | Exige que les jetons GitHub.com Actions portent les identifiants immuables du propriétaire et du dépôt dans `sub` (`repo:OWNER@OWNER-ID/REPO@REPO-ID:ref:...`). C'est déjà la valeur par défaut du broker : rendre la clé ne change donc rien tant que vous ne la désactivez pas. Elle ne régit que le format de `sub` : les revendications signées `repository_id` et `repository_owner_id` restent obligatoires pour tout jeton GitHub.com, et les autres émetteurs ne sont pas concernés. Les dépôts créés avant le 2026-07-15 conservent le sujet par nom seul jusqu'à ce qu'ils y adhèrent via le réglage OIDC d'Actions ou l'API REST, et sont rejetés avec `github_identity_immutable_subject_required` d'ici là. Ne la désactivez qu'en posture de migration temporaire — le sujet par nom seul est vulnérable à la réutilisation d'un espace de noms de dépôt — et surveillez la jauge `githubsts_oidc_immutable_subject_claims_required`, qui tombe à 0. |
+| `oidc.requireImmutableSubjectClaims` | `true` | Exige que les jetons GitHub.com Actions portent les identifiants immuables du propriétaire et du dépôt dans `sub` (`repo:OWNER@OWNER-ID/REPO@REPO-ID:ref:...`). C'est déjà la valeur par défaut du broker : rendre la clé ne change donc rien tant que vous ne la désactivez pas. Elle ne régit que le format de `sub` : les revendications signées `repository_id` et `repository_owner_id` restent obligatoires pour tout jeton GitHub.com. Elle ne décrit que l'émetteur par défaut : un émetteur de `oidc.githubIssuers` exige toujours le sujet immuable, et les autres émetteurs ne sont pas concernés. Les dépôts créés avant le 2026-07-15 conservent le sujet par nom seul jusqu'à ce qu'ils y adhèrent via le réglage OIDC d'Actions ou l'API REST, et sont rejetés avec `github_identity_immutable_subject_required` d'ici là. Ne la désactivez qu'en posture de migration temporaire — le sujet par nom seul est vulnérable à la réutilisation d'un espace de noms de dépôt — et surveillez la jauge `githubsts_oidc_immutable_subject_claims_required`, qui tombe à 0. |
+| `oidc.githubIssuers` | `[]` | Émetteurs d'entreprise GitHub.com, chacun avec les vérifications d'identité GitHub de l'émetteur par défaut et une liste bornée d'Apps qu'il peut atteindre. Vide, aucune clé n'est rendue. Voir [Accepter un émetteur d'entreprise GitHub.com](#enterprise-issuer). |
 | `oidc.requiredAudience` | `""` | Revendication `aud` exigée pour tout le serveur, vérifiée avant le chargement de politique et avant la réservation du JTI. Vide signifie que seul le champ `audience:` de chaque politique s'applique. Renseignez-y l'URL publique de ce déploiement, pour qu'un fichier de politique trop permissif ne puisse pas accepter un jeton émis pour une autre partie de confiance. |
 | `oidc.trustedJwksHosts` | `{}` | Liste d'autorisation des hôtes JWKS, par émetteur. Par défaut l'en-tête `Host` de la requête JWKS est épinglé à l'hôte de l'émetteur, pour qu'une réponse DNS forgée ne puisse pas détourner la récupération des clés de signature. Cette map est l'exception pour les émetteurs qui publient leurs clés ailleurs, comme `accounts.google.com` qui les sert depuis `www.googleapis.com`. Les clés sont des URL d'émetteur complètes, les valeurs des listes d'hôtes. |
+
+### Accepter un émetteur d'entreprise GitHub.com {#enterprise-issuer}
+
+Laissez les workflows d'une entreprise GitHub Enterprise Cloud atteindre des Apps choisies, avec les mêmes vérifications d'identité que GitHub.com. Une entreprise qui a activé `include_enterprise_slug` signe ses jetons avec son propre émetteur, `https://token.actions.githubusercontent.com/<slug>`. Déclaré dans `oidc.githubIssuers`, cet émetteur reçoit les vérifications de revendications signées de l'émetteur par défaut, avec le sujet immuable toujours exigé, et github-sts refuse ses jetons avec `issuer_not_enabled`, avant tout appel à GitHub, pour chaque App absente de `apps`.
+
+```yaml
+oidc:
+  allowedIssuers:
+    - https://token.actions.githubusercontent.com
+    - https://token.actions.githubusercontent.com/myorg-enterprise
+  githubIssuers:
+    - issuer: https://token.actions.githubusercontent.com/myorg-enterprise
+      apps:
+        - deploy
+```
+
+<!-- values:pause -->
+
+| Champ | Obligatoire | Effet |
+|---|---|---|
+| `issuer` | Oui | L'émetteur de l'entreprise exactement tel qu'il figure dans `iss`, `https://token.actions.githubusercontent.com/<enterprise-slug>`. Il doit aussi figurer dans `oidc.allowedIssuers`. Le chart refuse l'émetteur par défaut, qui n'a besoin d'aucune déclaration, et tout émetteur d'une autre forme, comme celui d'un GitHub Enterprise Server. |
+| `apps` | Oui | Clés de `github.apps` que les jetons de cet émetteur peuvent atteindre, au moins une. Un jeton de cet émetteur qui demande une autre App est refusé, quoi que dise sa politique de confiance. |
+
+<!-- values:resume -->
+
+Le chart refuse de rendre un émetteur absent de `oidc.allowedIssuers`, un émetteur déclaré deux fois et une App que `github.apps` ne définit pas, comme le serveur refuse de démarrer sur chacun d'eux. L'émetteur partage les clés de l'émetteur par défaut sur le même hôte : il n'a besoin d'aucune entrée dans `oidc.trustedJwksHosts`, et la politique Cilium n'autorise cet hôte qu'une fois. Listé dans `oidc.allowedIssuers` seulement, le même émetteur reste un émetteur générique : ses jetons ne reçoivent aucune vérification d'identité GitHub, et ses politiques de confiance ne peuvent pas utiliser le bloc `github`.
+
+`oidc.githubIssuers` exige une image github-sts qui connaît `oidc.github_issuers`, 0.1.3 ou ultérieure. Le chart refuse de rendre un émetteur sur son image par défaut tant que son `appVersion` est plus ancienne, et ne rend aucune clé tant que la liste est vide : une release qui n'en déclare aucun reste chargeable sur une image plus ancienne. Un `image.tag` ou un `image.digest` explicite relève de votre choix d'image et n'est pas vérifié : une image plus ancienne rejette la clé au démarrage, et le pod redémarre en boucle avec `field github_issuers not found in type config.OIDCConfig`. [GitHub Actions]({{< relref "/oidc-issuers/github-actions#enterprise-issuer" >}}) couvre la politique de confiance et l'activation de l'émetteur dans GitHub.
 
 ## Bundles de politiques
 

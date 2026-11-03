@@ -700,6 +700,62 @@ Once `appVersion` is 0.1.3 or later this check never fires.
 {{- end -}}
 {{- end }}
 
+{{/*
+Fail fast on declared GitHub issuers github-sts would refuse at startup: an
+issuer that is not a GitHub.com enterprise issuer, a duplicate, an issuer
+missing from allowedIssuers, or an empty, duplicate or unknown App. Each
+mirrors the server's own check (ADR github-sts/0016), in its order.
+*/}}
+{{- define "github-sts.validateGitHubIssuers" -}}
+{{- $seen := dict -}}
+{{- range $i, $declared := .Values.oidc.githubIssuers | default list -}}
+{{- $prefix := printf "oidc.githubIssuers[%d]" $i -}}
+{{- $issuer := toString ($declared.issuer | default "") -}}
+{{- /* The server's githubEnterpriseIssuerPattern: the default issuer
+followed by one enterprise slug. */ -}}
+{{- if not (regexMatch "^https://token\\.actions\\.githubusercontent\\.com/[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?$" $issuer) -}}
+{{- fail (printf "%s.issuer must be https://token.actions.githubusercontent.com/<enterprise-slug> (got %q)" $prefix $issuer) -}}
+{{- end -}}
+{{- if hasKey $seen $issuer -}}
+{{- fail (printf "%s.issuer duplicates an earlier issuer (got %q)" $prefix $issuer) -}}
+{{- end -}}
+{{- $_ := set $seen $issuer true -}}
+{{- if not (has $issuer ($.Values.oidc.allowedIssuers | default list)) -}}
+{{- fail (printf "%s.issuer must also be listed in oidc.allowedIssuers (got %q)" $prefix $issuer) -}}
+{{- end -}}
+{{- if not $declared.apps -}}
+{{- fail (printf "%s.apps must list at least one app" $prefix) -}}
+{{- end -}}
+{{- $apps := dict -}}
+{{- range $declared.apps -}}
+{{- $app := toString . -}}
+{{- if not $app -}}
+{{- fail (printf "%s.apps must not contain empty app names" $prefix) -}}
+{{- end -}}
+{{- if hasKey $apps $app -}}
+{{- fail (printf "%s.apps contains duplicate app %q" $prefix $app) -}}
+{{- end -}}
+{{- $_ := set $apps $app true -}}
+{{- if not (hasKey ($.Values.github.apps | default dict) $app) -}}
+{{- fail (printf "%s.apps references unknown app %q: it must be a key of github.apps" $prefix $app) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+A declared GitHub issuer needs a github-sts image that knows
+`oidc.github_issuers`, 0.1.3 or later: an older one rejects the key at
+startup, and the pod CrashLoopBackOffs. As for a signer, the chart refuses
+that render on its default image only, and never once `appVersion` is 0.1.3
+or later.
+*/}}
+{{- define "github-sts.validateGitHubIssuersImage" -}}
+{{- if and .Values.oidc.githubIssuers (not .Values.image.tag) (not .Values.image.digest) (semverCompare "<0.1.3-0" .Chart.AppVersion) -}}
+{{- fail (printf "oidc.githubIssuers needs a github-sts image that knows oidc.github_issuers, 0.1.3 or later, but this chart's appVersion is %s: set image.tag or image.digest to such an image" .Chart.AppVersion) -}}
+{{- end -}}
+{{- end }}
+
 {{/* Secret-backed bearer token for an endpoint test hook. */}}
 {{- define "github-sts.testEnv" -}}
 env:

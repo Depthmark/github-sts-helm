@@ -1,0 +1,25 @@
+# CI test values: a GitHub.com enterprise issuer declared next to the default
+# issuer and enabled for one App of two. Lint and render only: the Kind job has
+# no token from an enterprise issuer to exchange.
+
+# A declared issuer needs github-sts 0.1.3 or later; the chart refuses one on
+# its default image while appVersion is older.
+image:
+  tag: "0.1.3"
+
+github:
+  apps:
+    deploy-bot:
+      appId: 11111
+      existingSecret: "deploy-bot-credentials"
+    release-bot:
+      appId: 22222
+      existingSecret: "release-bot-credentials"
+
+oidc:
+  allowedIssuers:
+    - "https://token.actions.githubusercontent.com"
+    - "https://token.actions.githubusercontent.com/myorg-enterprise"
+  githubIssuers:
+    - issuer: "https://token.actions.githubusercontent.com/myorg-enterprise"
+      apps: ["deploy-bot"]

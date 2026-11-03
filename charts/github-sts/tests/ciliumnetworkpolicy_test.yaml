@@ -150,6 +150,20 @@ tests:
           content:
             matchName: accounts.google.com
 
+  - it: should derive a GitHub.com enterprise issuer's shared host only once
+    set:
+      networkPolicy.cilium.enabled: true
+      networkPolicy.allowKubeDns: false
+      networkPolicy.cilium.fqdns: []
+      oidc.allowedIssuers:
+        - https://token.actions.githubusercontent.com
+        - https://token.actions.githubusercontent.com/myorg-enterprise
+    asserts:
+      - equal:
+          path: spec.egress[0].toFQDNs
+          value:
+            - matchName: token.actions.githubusercontent.com
+
   - it: should not derive JWKS hosts when disabled
     set:
       networkPolicy.cilium.enabled: true

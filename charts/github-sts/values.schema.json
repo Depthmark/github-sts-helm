@@ -863,9 +863,33 @@
           "title": "allowedIssuers",
           "type": "array"
         },
+        "githubIssuers": {
+          "description": "Extra GitHub issuers, each enabled for a bounded list of Apps. A\nGitHub.com enterprise that set `include_enterprise_slug` signs its tokens\nwith its own issuer, `https://token.actions.githubusercontent.com/\u003cslug\u003e`.\nDeclaring it gives those tokens the same GitHub identity checks as the\ndefault issuer, with the immutable subject always required, and denies\nthem with `issuer_not_enabled` for any App not in `apps`. Listed in\n`allowedIssuers` alone, the same issuer stays a generic issuer with no\nGitHub identity checks.\n\nEach `issuer` must also appear in `allowedIssuers`, and each of its `apps`\nmust be a key of `github.apps`. The chart refuses to render otherwise, as\nthe server refuses to start. The issuer shares the default issuer's keys\non the same host, so it needs no `trustedJwksHosts` entry.\n\nNeeds a github-sts image that knows `oidc.github_issuers`, 0.1.3 or later.\nThe chart refuses to render an issuer on its default image while its\n`appVersion` is older, and omits the key when this list is empty.\n\nExample:\n  - issuer: https://token.actions.githubusercontent.com/myorg-enterprise\n    apps: [deploy]",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "apps": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "issuer": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "issuer",
+              "apps"
+            ],
+            "type": "object"
+          },
+          "required": [],
+          "title": "githubIssuers"
+        },
         "requireImmutableSubjectClaims": {
           "default": true,
-          "description": "Require GitHub.com Actions tokens to carry immutable owner and\nrepository IDs inside the `sub` claim, in the form\n`repo:OWNER\nbroker's own default, so rendering it changes nothing until you set it\nto false.\n\nIt gates only what `sub` must contain. The separate signed\n`repository_id` and `repository_owner_id` claims are mandatory for every\nGitHub.com token either way, and the broker cross-checks them against\nthe subject before audience, replay or policy work. Tokens from any\nother issuer are unaffected, and the immutable format does not exist on\nGitHub Enterprise Server.\n\nRepositories created before 2026-07-15 keep the name-only subject format\nuntil they opt in through the organization or repository Actions OIDC\nsetting, or the REST API. Until a repository has opted in, its exchanges\nare rejected with\n`githubsts_oidc_validation_errors_total{reason=\"github_identity_immutable_subject_required\"}`.\n\nSet false only as an explicit, temporary migration posture: the legacy\nname-only subject is vulnerable to repository namespace reuse, so an\nattacker who acquires an abandoned owner/repo name can present a subject\nthat matches a trust policy written for the original. The broker logs a\nstartup warning, reports\n`security.require_immutable_subject_claims: false` on `/health`, and\ndrops the `githubsts_oidc_immutable_subject_claims_required` gauge to 0\nso the posture is alertable.",
+          "description": "Require GitHub.com Actions tokens to carry immutable owner and\nrepository IDs inside the `sub` claim, in the form\n`repo:OWNER\nbroker's own default, so rendering it changes nothing until you set it\nto false.\n\nIt gates only what `sub` must contain. The separate signed\n`repository_id` and `repository_owner_id` claims are mandatory for every\nGitHub.com token either way, and the broker cross-checks them against\nthe subject before audience, replay or policy work. It describes the\ndefault issuer only: an issuer in `githubIssuers` always requires the\nimmutable subject, whatever this value. Tokens from any other issuer are\nunaffected, and the immutable format does not exist on GitHub Enterprise\nServer.\n\nRepositories created before 2026-07-15 keep the name-only subject format\nuntil they opt in through the organization or repository Actions OIDC\nsetting, or the REST API. Until a repository has opted in, its exchanges\nare rejected with\n`githubsts_oidc_validation_errors_total{reason=\"github_identity_immutable_subject_required\"}`.\n\nSet false only as an explicit, temporary migration posture: the legacy\nname-only subject is vulnerable to repository namespace reuse, so an\nattacker who acquires an abandoned owner/repo name can present a subject\nthat matches a trust policy written for the original. The broker logs a\nstartup warning, reports\n`security.require_immutable_subject_claims: false` on `/health`, and\ndrops the `githubsts_oidc_immutable_subject_claims_required` gauge to 0\nso the posture is alertable.",
           "title": "requireImmutableSubjectClaims",
           "type": "boolean"
         },
